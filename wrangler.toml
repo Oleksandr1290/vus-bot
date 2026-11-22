@@ -12,7 +12,7 @@ database_id = "4410d733-2bb6-4469-b370-0dd67ae9f7c9"
 
 [vars]
 BOT_USERNAME = "vus_ua_bot"
-CHANNEL_USERNAME = "vus_ua"
+CHANNEL_USERNAME = "vus_ogoloshennya_ua"
 GROUP_USERNAME = "vus_chat"
 CHANNEL_ID = "@vus_ua"
 ADMIN_CHAT_ID = "-1004302081989"
