@@ -129,6 +129,10 @@ const T = {
     phone_btn: '📱 Надіслати мій номер',
     phone_added: 'Телефон додано: {p}',
     contact_need: 'Оберіть хоча б один спосіб зв’язку.',
+    captcha_ask: 'Привіт, {name}! 👋\n\nЩоб приєднатися до групи ВУС, підтвердіть, що ви не бот — натисніть {emoji}',
+    captcha_wrong: 'Неправильно. Спробуйте ще раз — натисніть {emoji}',
+    captcha_failed: 'На жаль, перевірку не пройдено. Ви можете подати заявку до групи ще раз пізніше.',
+    captcha_ok: '✅ Готово! Ласкаво просимо до ВУС.\n\nПерші 24 години в групі можна надсилати лише текст — так ми захищаємося від спаму.\n\nХочете щось продати, знайти роботу чи житло? Подайте оголошення безкоштовно — кнопка «📝 Подати оголошення» внизу 👇',
     banned: 'Ваш акаунт заблоковано в спільноті ВУС.',
   },
 
@@ -260,6 +264,10 @@ const T = {
     phone_btn: '📱 Отправить мой номер',
     phone_added: 'Телефон добавлен: {p}',
     contact_need: 'Выберите хотя бы один способ связи.',
+    captcha_ask: 'Привет, {name}! 👋\n\nЧтобы вступить в группу ВУС, подтвердите, что вы не бот — нажмите {emoji}',
+    captcha_wrong: 'Неправильно. Попробуйте ещё раз — нажмите {emoji}',
+    captcha_failed: 'К сожалению, проверка не пройдена. Вы можете подать заявку в группу ещё раз позже.',
+    captcha_ok: '✅ Готово! Добро пожаловать в ВУС.\n\nПервые 24 часа в группе можно отправлять только текст — так мы защищаемся от спама.\n\nХотите что-то продать, найти работу или жильё? Подайте объявление бесплатно — кнопка «📝 Подать объявление» внизу 👇',
     banned: 'Ваш аккаунт заблокирован в сообществе ВУС.',
   },
 
@@ -391,6 +399,10 @@ const T = {
     phone_btn: '📱 Share my number',
     phone_added: 'Phone added: {p}',
     contact_need: 'Choose at least one way to contact you.',
+    captcha_ask: 'Hi, {name}! 👋\n\nTo join the VUS group, please confirm you are not a bot — tap {emoji}',
+    captcha_wrong: 'Not quite. Try again — tap {emoji}',
+    captcha_failed: 'Sorry, the check was not passed. You can request to join the group again later.',
+    captcha_ok: '✅ Done! Welcome to VUS.\n\nFor the first 24 hours you can only send text in the group — this protects us from spam.\n\nWant to sell something, find a job or housing? Post a free ad — tap “📝 Post an ad” below 👇',
     banned: 'Your account is banned in the VUS community.',
   },
 };

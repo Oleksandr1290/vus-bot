@@ -33,6 +33,10 @@ export async function ensureSchema(env) {
     `CREATE INDEX IF NOT EXISTS idx_pun_user ON punishments(user_id, created_at)`,
     `CREATE TABLE IF NOT EXISTS applications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, answers TEXT NOT NULL,
        status TEXT NOT NULL DEFAULT 'pending', decided_by INTEGER, card_msg_id INTEGER, created_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS join_requests (user_id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, answer TEXT NOT NULL,
+       options TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, lang TEXT, created_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS violations (user_id INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS idx_viol_user ON violations(user_id, created_at)`,
     `CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER, action TEXT NOT NULL,
        target_id INTEGER, details TEXT, created_at INTEGER NOT NULL)`,
   ];

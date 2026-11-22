@@ -7,6 +7,7 @@ import {
   send, sendHtml, showMenu, menuFor, removeButtons, answer, pairs, whoName, userLabel, findUser,
   removeFromChannel, postLink, adByChannelMsg, adminCard, modButtons, mainMenu,
 } from './common.js';
+import { filterGroupMessage, onJoined } from './guard.js';
 
 const BOT = (env) => env.BOT_USERNAME || 'vus_ua_bot';
 
@@ -478,6 +479,7 @@ const ACTION_UA = {
   warn: '⚠️ попередження', mute: '🔇 мут', ban: '⛔ бан', unban: '✅ розбан', delete_ad: '🗑 видалив оголошення',
   publish_ad: '✅ опублікував', reject_ad: '❌ відхилив', reject_report: '✅ відхилив скаргу', admin_add: '🛡 новий адмін',
   admin_remove: '➖ зняв адміна', post: '📢 новина', setup: '📌 /setup',
+  auto_mute: '🔇 автомут за спам', cas_ban: '🛡 бан за базою CAS',
 };
 
 async function showLog(env, user) {
@@ -485,7 +487,7 @@ async function showLog(env, user) {
   if (!results.length) return send(env, user.id, '📜 Журнал порожній.');
   let text = '📜 <b>Останні рішення</b>\n\n';
   for (const r of results) {
-    const a = await getUser(env, r.admin_id);
+    const a = r.admin_id ? await getUser(env, r.admin_id) : { first_name: '🤖 бот' };
     const target = r.target_id ? await getUser(env, r.target_id) : null;
     const d = new Date(r.created_at * 1000);
     const p = (n) => String(n).padStart(2, '0');
@@ -965,11 +967,10 @@ export async function onGroupMessage(env, msg) {
     await send(env, env.OWNER_ID, `Бот не бачить, хто написав /setup у групі (повідомлення надіслано анонімно або від імені каналу).\n\nНапишіть мені тут у особистих: /setup ${msg.chat.username ? '@' + msg.chat.username : msg.chat.id}`);
     return;
   }
-  if (msg.from.is_bot) return;
   const text = (msg.text || '').trim();
   const cmd = text.split(/\s|@/)[0].toLowerCase();
 
-  if (cmd === '/setup' && isOwner(env, msg.from.id)) {
+  if (cmd === '/setup' && !msg.from.is_bot && isOwner(env, msg.from.id)) {
     const owner = await upsertUser(env, msg.from);
     await tg(env, 'deleteMessage', { chat_id: msg.chat.id, message_id: msg.message_id });
     return runSetup(env, owner, msg.chat);
@@ -977,6 +978,16 @@ export async function onGroupMessage(env, msg) {
 
   const gid = await groupId(env);
   if (!gid || String(msg.chat.id) !== String(gid)) return;
+
+  // Service messages "X joined / left" — remove to keep the chat clean.
+  if (msg.new_chat_members || msg.left_chat_member) {
+    await tg(env, 'deleteMessage', { chat_id: msg.chat.id, message_id: msg.message_id });
+    return;
+  }
+
+  // Spam filters (links, foreign channels, stop words, other alphabets).
+  if (await filterGroupMessage(env, msg)) return;
+  if (msg.from.is_bot) return;
 
   await upsertUser(env, msg.from);
 
@@ -1009,7 +1020,14 @@ export async function onChatMember(env, upd) {
   const gid = await groupId(env);
   if (!gid || String(upd.chat.id) !== String(gid)) return;
   const u = upd.new_chat_member && upd.new_chat_member.user;
-  if (!u || u.is_bot || isOwner(env, u.id)) return;
+  if (!u || u.is_bot) return;
+
+  // New member (any way of joining): CAS check, 24h text-only, welcome.
+  const inside = (m) => m && (m.status === 'member' || (m.status === 'restricted' && m.is_member));
+  const outside = (m) => !m || m.status === 'left' || m.status === 'kicked' || (m.status === 'restricted' && !m.is_member);
+  if (outside(upd.old_chat_member) && inside(upd.new_chat_member)) return onJoined(env, gid, u);
+
+  if (isOwner(env, u.id)) return;
   const isAdm = (s) => s === 'administrator' || s === 'creator';
   const was = isAdm(upd.old_chat_member && upd.old_chat_member.status);
   const now_ = isAdm(upd.new_chat_member.status);

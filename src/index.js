@@ -15,6 +15,7 @@ import {
   showPanel, onStaffCommand, onStaffInput, onStaffButton,
   onGroupMessage, onChatMember,
 } from './staff.js';
+import { onJoinRequest, onCaptchaButton, cronGuard } from './guard.js';
 
 // ───────────────────────────── entry points ─────────────────────────────
 
@@ -42,7 +43,7 @@ export default {
       const hook = await tg(env, 'setWebhook', {
         url: `${url.origin}/webhook`,
         secret_token: env.WEBHOOK_SECRET,
-        allowed_updates: ['message', 'callback_query', 'chat_member', 'my_chat_member'],
+        allowed_updates: ['message', 'callback_query', 'chat_member', 'my_chat_member', 'chat_join_request'],
       });
       const cmds = [];
       cmds.push(await tg(env, 'setMyCommands', { commands: [{ command: 'start', description: 'Головне меню' }] }));
@@ -64,6 +65,7 @@ async function handleUpdate(update, env) {
   if (m && m.chat.type === 'private') return onPrivateMessage(m, env);
   if (m && (m.chat.type === 'supergroup' || m.chat.type === 'group')) return onGroupMessage(env, m);
   if (update.chat_member) return onChatMember(env, update.chat_member);
+  if (update.chat_join_request) return onJoinRequest(env, update.chat_join_request);
   if (update.callback_query) return onCallback(update.callback_query, env);
 }
 
@@ -660,6 +662,8 @@ async function onCallback(cq, env) {
     return onStaffButton(env, user, cq, parts);
   }
 
+  if (parts[0] === 'jc') return onCaptchaButton(env, user, cq, parts);
+
   if (user.banned && !user.isStaff) return answer(env, cq, t(user.lang || 'ua', 'banned'));
 
   if (parts[0] === 'lang') {
@@ -723,6 +727,8 @@ async function runCron(env) {
     const u = await getUser(env, ad.user_id);
     if (u) await send(env, u.id, t(u.lang, 'expired_user', { id: ad.id, title: ad.title }));
   }
+
+  await cronGuard(env);
 
   // Drafts abandoned for more than 2 days.
   await env.DB.prepare('DELETE FROM sessions WHERE updated_at < ?').bind(ts - 2 * DAY).run();
