@@ -2,7 +2,7 @@
 
 import { tg, esc, now, fmtDate } from './tg.js';
 import { t } from './i18n.js';
-import { categoryByKey, hashtag } from './data.js';
+import { categoryByKey, hashtag, priceText } from './data.js';
 
 export { tg, esc, now, fmtDate, t };
 
@@ -37,6 +37,8 @@ export async function ensureSchema(env) {
        target_id INTEGER, details TEXT, created_at INTEGER NOT NULL)`,
   ];
   await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
+  // New column for ads sent as ready-made text (fails harmlessly if it already exists).
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN kind TEXT').run(); } catch (e) { /* already there */ }
   schemaReady = true;
 }
 
@@ -161,22 +163,23 @@ export async function findUser(env, query) {
 
 // ───────────────────────────── post rendering ─────────────────────────────
 
-function priceUa(p) {
-  if (p === 'neg') return 'Договірна';
-  if (p === 'free') return 'Безкоштовно';
-  return esc(p);
-}
-
 export function buildPost(ad, env) {
   const cat = categoryByKey(ad.category);
   const tags = [hashtag(ad.country), hashtag(ad.city), cat ? '#' + cat.tag : ''].filter(Boolean).join(' ');
   const bot = env.BOT_USERNAME || 'vus_ua_bot';
+  const footer = `➕ Подати своє оголошення безкоштовно: @${bot}`;
+
+  // Ready-made text from the author.
+  if (ad.kind === 'free') return `${tags}\n\n${esc(ad.body)}\n\n${footer}`;
+
+  const price = priceText(ad.price);
+  const label = (cat && cat.pl && cat.pl.ua) || 'Ціна';
   return `${tags}\n\n<b>${esc(ad.title)}</b>\n\n` +
-    `💰 Ціна: ${priceUa(ad.price)}\n` +
+    (price ? `💰 ${label}: ${esc(price)}\n` : '') +
     `📍 Місце: ${esc(ad.city)}, ${esc(ad.country)}\n\n` +
     `${esc(ad.body)}\n\n` +
-    `📞 Контакт: ${esc(ad.contact)}\n\n` +
-    `➕ Подати своє оголошення безкоштовно: @${bot}`;
+    (ad.contact ? `📞 Контакт: ${esc(ad.contact)}\n\n` : '') +
+    footer;
 }
 
 const plainLength = (html) => html.replace(/<[^>]+>/g, '').replace(/&(amp|lt|gt);/g, 'x').length;

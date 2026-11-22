@@ -8,7 +8,7 @@ import {
   sendPost, removeFromChannel, publishAd, postLink, adminCard, modButtons, sendAdminCard,
 } from './common.js';
 import { menuKeyOf, LANGS } from './i18n.js';
-import { COUNTRIES, CATEGORIES, countryByCode } from './data.js';
+import { COUNTRIES, CATEGORIES, countryByCode, categoryByKey, parsePrice } from './data.js';
 import {
   startReport, onReportInput, onReportButton, openReport,
   startApplication, onApplicationInput,
@@ -146,13 +146,26 @@ async function onMenu(env, user, key) {
 
 // ───────────────────────────── ad form ─────────────────────────────
 
-const ORDER = ['country', 'city', 'cat', 'title', 'body', 'price', 'photos', 'contact', 'site', 'preview'];
+const FORM_STEPS = ['mode', 'country', 'city', 'cat', 'title', 'body', 'price', 'photos', 'contact', 'site', 'preview'];
+const FREE_STEPS = ['mode', 'country', 'city', 'cat', 'free', 'site', 'preview'];
+
+function stepsFor(data) {
+  if (data.mode === 'free') return FREE_STEPS;
+  const cat = categoryByKey(data.category);
+  return cat && cat.price === 'none' ? FORM_STEPS.filter((s) => s !== 'price') : FORM_STEPS;
+}
+
+function nextStep(step, data) {
+  const list = stepsFor(data);
+  return list[list.indexOf(step) + 1];
+}
 
 function prevStep(step, data) {
   if (step === 'country_text') return 'country';
   if (step === 'city') return data.countryCode === 'XX' ? 'country_text' : 'country';
-  const i = ORDER.indexOf(step);
-  return i > 0 ? ORDER[i - 1] : null;
+  const list = stepsFor(data);
+  const i = list.indexOf(step);
+  return i > 0 ? list[i - 1] : null;
 }
 
 async function checkLimits(env, user) {
@@ -175,9 +188,7 @@ async function checkLimits(env, user) {
 async function startAd(env, user) {
   const limit = await checkLimits(env, user);
   if (limit) return send(env, user.id, limit, { reply_markup: menuFor(env, user) });
-  const data = {};
-  await setSession(env, user.id, 'ad:country', data);
-  return promptStep(env, user, 'country', data);
+  return goStep(env, user, 'mode', {});
 }
 
 async function goStep(env, user, step, data) {
@@ -185,15 +196,42 @@ async function goStep(env, user, step, data) {
   return promptStep(env, user, step, data);
 }
 
+function contactKeyboard(L, user, data) {
+  const rows = [];
+  if (user.username) {
+    const u = '@' + user.username;
+    rows.push([{ text: t(L, data.useTg ? 'contact_tg_on' : 'contact_tg_off', { u }), callback_data: 'ad:ct:tg' }]);
+  }
+  rows.push([data.phone
+    ? { text: t(L, 'contact_phone_on', { p: data.phone }), callback_data: 'ad:ct:ph0' }
+    : { text: t(L, 'contact_phone_add'), callback_data: 'ad:ct:ph' }]);
+  if (data.useTg || data.phone || data.contactText) rows.push([{ text: t(L, 'contact_done'), callback_data: 'ad:ct:ok' }]);
+  rows.push(navRow(L));
+  return { inline_keyboard: rows };
+}
+
+function composeContact(user, data) {
+  const parts = [];
+  if (data.useTg && user.username) parts.push('@' + user.username);
+  if (data.contactText) parts.push(data.contactText);
+  if (data.phone) parts.push(data.phone);
+  return parts.join(' · ');
+}
+
 async function promptStep(env, user, step, data) {
   const L = user.lang;
   const kb = (rows, back = true) => ({ reply_markup: { inline_keyboard: [...rows, navRow(L, back)] } });
 
   switch (step) {
+    case 'mode':
+      return send(env, user.id, t(L, 'ask_mode'), kb([
+        [{ text: t(L, 'mode_form'), callback_data: 'ad:m:form' }],
+        [{ text: t(L, 'mode_free'), callback_data: 'ad:m:free' }],
+      ], false));
     case 'country': {
       const btns = COUNTRIES.map((c) => ({ text: c[L] || c.ua, callback_data: `ad:c:${c.code}` }));
       btns.push({ text: t(L, 'other_country'), callback_data: 'ad:c:XX' });
-      return send(env, user.id, t(L, 'ask_country'), kb(pairs(btns), false));
+      return send(env, user.id, t(L, 'ask_country'), kb(pairs(btns)));
     }
     case 'country_text':
       return send(env, user.id, t(L, 'ask_country_text'), kb([]));
@@ -207,15 +245,20 @@ async function promptStep(env, user, step, data) {
       const btns = CATEGORIES.map((c) => ({ text: c[L] || c.ua, callback_data: `ad:cat:${c.key}` }));
       return send(env, user.id, t(L, 'ask_cat'), kb(pairs(btns)));
     }
+    case 'free':
+      return send(env, user.id, t(L, 'ask_free'), kb([]));
     case 'title':
       return send(env, user.id, t(L, 'ask_title'), kb([]));
     case 'body':
       return send(env, user.id, t(L, 'ask_body'), kb([]));
-    case 'price':
-      return send(env, user.id, t(L, 'ask_price'), kb([[
-        { text: t(L, 'price_neg'), callback_data: 'ad:pr:neg' },
-        { text: t(L, 'price_free'), callback_data: 'ad:pr:free' },
-      ]]));
+    case 'price': {
+      const cat = categoryByKey(data.category);
+      const label = (cat && cat.pl && (cat.pl[L] || cat.pl.ua)) || 'Ціна';
+      const range = cat && cat.price === 'range';
+      const btns = [{ text: t(L, 'price_neg'), callback_data: 'ad:pr:neg' }];
+      if (!range) btns.push({ text: t(L, 'price_free'), callback_data: 'ad:pr:free' });
+      return send(env, user.id, t(L, range ? 'ask_price_range' : 'ask_price_single', { label }), kb([btns]));
+    }
     case 'photos': {
       const n = (data.photos || []).length;
       const row = n > 0
@@ -223,12 +266,8 @@ async function promptStep(env, user, step, data) {
         : [{ text: t(L, 'photos_none'), callback_data: 'ad:ph:none' }];
       return send(env, user.id, t(L, 'ask_photos'), kb([row]));
     }
-    case 'contact': {
-      const rows = user.username
-        ? [[{ text: t(L, 'contact_tg', { u: '@' + user.username }), callback_data: 'ad:ct:tg' }]]
-        : [];
-      return send(env, user.id, t(L, 'ask_contact'), kb(rows));
-    }
+    case 'contact':
+      return send(env, user.id, t(L, 'ask_contact'), { reply_markup: contactKeyboard(L, user, data) });
     case 'site':
       return send(env, user.id, t(L, 'ask_site'), kb([[
         { text: t(L, 'site_yes'), callback_data: 'ad:site:1' },
@@ -246,11 +285,21 @@ async function promptStep(env, user, step, data) {
 }
 
 function draftToAd(user, d) {
+  const free = d.mode === 'free';
+  const firstLine = free ? String(d.freeText || '').split('\n').find((x) => x.trim()) || '' : '';
   return {
-    id: 0, user_id: user.id, country: d.country, city: d.city, category: d.category, title: d.title,
-    body: d.body, price: d.price, photos: JSON.stringify(d.photos || []), contact: d.contact, on_site: d.onSite ? 1 : 0,
+    id: 0, user_id: user.id, kind: free ? 'free' : 'form',
+    country: d.country, city: d.city, category: d.category,
+    title: free ? firstLine.slice(0, 60) : d.title,
+    body: free ? d.freeText : d.body,
+    price: free ? 'none' : (d.price || 'none'),
+    photos: JSON.stringify(d.photos || []),
+    contact: free ? '' : composeContact(user, d),
+    on_site: d.onSite ? 1 : 0,
   };
 }
+
+const PHONE_RE = /^\+?[\d\s()\-]{7,20}$/;
 
 async function onAdInput(env, user, session, msg) {
   const L = user.lang;
@@ -273,9 +322,13 @@ async function onAdInput(env, user, session, msg) {
       return needText(2, 40, 'country', 'city');
     case 'city': return needText(2, 40, 'city', 'cat');
     case 'title': return needText(3, 80, 'title', 'body', { noLinks: true });
-    case 'body': return needText(10, 800, 'body', 'price', { noLinks: true });
-    case 'price': return needText(1, 40, 'price', 'photos', { noLinks: true });
-    case 'contact': return needText(3, 64, 'contact', 'site', { noLinks: true });
+    case 'body': return needText(10, 800, 'body', nextStep('body', data), { noLinks: true });
+    case 'price': {
+      const p = parsePrice(text);
+      if (!p) return send(env, user.id, t(L, 'err_price'));
+      data.price = p;
+      return goStep(env, user, 'photos', data);
+    }
     case 'photos': {
       if (!msg.photo) return send(env, user.id, t(L, 'err_photo'));
       data.photos = data.photos || [];
@@ -286,23 +339,108 @@ async function onAdInput(env, user, session, msg) {
         reply_markup: { inline_keyboard: [[{ text: t(L, 'photos_done'), callback_data: 'ad:ph:done' }], navRow(L)] },
       });
     }
+    case 'contact': {
+      if (msg.contact) {
+        const ph = String(msg.contact.phone_number || '');
+        data.phone = ph.startsWith('+') ? ph : '+' + ph;
+      } else if (!text) {
+        return send(env, user.id, t(L, 'err_text'));
+      } else if (PHONE_RE.test(text)) {
+        data.phone = text;
+      } else {
+        if (text.length > 64) return send(env, user.id, t(L, 'err_long', { n: 64 }));
+        if (LINK_RE.test(text)) return send(env, user.id, t(L, 'err_links'));
+        data.contactText = text;
+      }
+      await setSession(env, user.id, session.state, data);
+      if (data.phone && (msg.contact || PHONE_RE.test(text))) {
+        // Bring back the main menu instead of the "share number" keyboard.
+        await send(env, user.id, t(L, 'phone_added', { p: data.phone }), { reply_markup: menuFor(env, user) });
+      }
+      return promptStep(env, user, 'contact', data);
+    }
+    case 'free':
+      return onFreeInput(env, user, session, msg);
     default:
       return promptStep(env, user, step, data);
   }
 }
 
-const BUTTON_STATE = { c: 'country', ci: 'city', cat: 'cat', pr: 'price', ph: 'photos', ct: 'contact', site: 'site', sub: 'preview', redo: 'preview' };
+// Ready-made ad: text, or photo(s) with a caption. Album photos arrive as separate updates,
+// so they are appended to the session atomically.
+async function onFreeInput(env, user, session, msg) {
+  const L = user.lang;
+  const caption = (msg.caption || msg.text || '').trim();
+
+  if (caption) {
+    if (caption.length > 900) return send(env, user.id, t(L, 'err_long', { n: 900 }));
+    if (caption.length < 15) return send(env, user.id, t(L, 'err_short'));
+    if (LINK_RE.test(caption)) return send(env, user.id, t(L, 'err_links'));
+  }
+
+  if (msg.photo) {
+    const fileId = msg.photo[msg.photo.length - 1].file_id;
+    await env.DB.prepare(
+      `UPDATE sessions SET data = json_set(data, '$.photos',
+         json_insert(COALESCE(json_extract(data, '$.photos'), json('[]')), '$[#]', ?1)), updated_at = ?2
+       WHERE user_id = ?3 AND json_array_length(COALESCE(json_extract(data, '$.photos'), json('[]'))) < ?4`
+    ).bind(fileId, now(), user.id, MAX_PHOTOS).run();
+    if (caption) {
+      await env.DB.prepare("UPDATE sessions SET data = json_set(data, '$.freeText', ?1) WHERE user_id = ?2").bind(caption, user.id).run();
+    }
+    if (msg.media_group_id) {
+      // Show the "Done" button once per album.
+      const r = await env.DB.prepare(
+        "UPDATE sessions SET data = json_set(data, '$.mg', ?1) WHERE user_id = ?2 AND COALESCE(json_extract(data, '$.mg'), '') != ?1"
+      ).bind(String(msg.media_group_id), user.id).run();
+      if (r.meta && r.meta.changes === 0) return;
+      return send(env, user.id, t(L, 'free_photos_wait'), {
+        reply_markup: { inline_keyboard: [[{ text: t(L, 'photos_done'), callback_data: 'ad:fr:ok' }], navRow(L)] },
+      });
+    }
+    if (caption) {
+      const s = await getSession(env, user.id);
+      return goStep(env, user, 'site', s.data);
+    }
+    return send(env, user.id, t(L, 'free_need_text'), { reply_markup: { inline_keyboard: [navRow(L)] } });
+  }
+
+  if (!caption) return send(env, user.id, t(L, 'err_text'));
+  const s = await getSession(env, user.id);
+  s.data.freeText = caption;
+  return goStep(env, user, 'site', s.data);
+}
+
+const BUTTON_STATE = { m: 'mode', c: 'country', ci: 'city', cat: 'cat', pr: 'price', ph: 'photos', ct: 'contact', fr: 'free', site: 'site', sub: 'preview', redo: 'preview' };
 
 async function onAdButton(env, user, cq, parts) {
   const L = user.lang;
   const session = await getSession(env, user.id);
   const expected = BUTTON_STATE[parts[1]];
   if (session.state !== `ad:${expected}`) return answer(env, cq, t(L, 'stale'));
-  await removeButtons(env, cq.message);
-  await answer(env, cq);
   const data = session.data;
 
+  // Contact toggles edit the same message instead of sending a new one.
+  if (parts[1] === 'ct' && (parts[2] === 'tg' || parts[2] === 'ph0')) {
+    if (parts[2] === 'tg') data.useTg = !data.useTg;
+    if (parts[2] === 'ph0') data.phone = null;
+    await setSession(env, user.id, session.state, data);
+    await tg(env, 'editMessageReplyMarkup', { chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: contactKeyboard(L, user, data) });
+    return answer(env, cq);
+  }
+  if (parts[1] === 'ct' && parts[2] === 'ok' && !composeContact(user, data)) return answer(env, cq, t(L, 'contact_need'), true);
+  if (parts[1] === 'fr' && !data.freeText) {
+    await answer(env, cq);
+    return send(env, user.id, t(L, 'free_need_text'));
+  }
+
+  await removeButtons(env, cq.message);
+  await answer(env, cq);
+
   switch (parts[1]) {
+    case 'm':
+      data.mode = parts[2] === 'free' ? 'free' : 'form';
+      return goStep(env, user, 'country', data);
     case 'c': {
       if (parts[2] === 'XX') {
         data.countryCode = 'XX';
@@ -320,12 +458,22 @@ async function onAdButton(env, user, cq, parts) {
       data.city = city[0];
       return goStep(env, user, 'cat', data);
     }
-    case 'cat': data.category = parts[2]; return goStep(env, user, 'title', data);
+    case 'cat':
+      data.category = parts[2];
+      return goStep(env, user, nextStep('cat', data), data);
     case 'pr': data.price = parts[2]; return goStep(env, user, 'photos', data);
     case 'ph': if (parts[2] === 'none') data.photos = []; return goStep(env, user, 'contact', data);
-    case 'ct': data.contact = '@' + user.username; return goStep(env, user, 'site', data);
+    case 'ct':
+      if (parts[2] === 'ph') {
+        return send(env, user.id, t(L, 'ask_phone'), {
+          reply_markup: { keyboard: [[{ text: t(L, 'phone_btn'), request_contact: true }]], resize_keyboard: true, one_time_keyboard: true },
+        });
+      }
+      data.contact = composeContact(user, data);
+      return goStep(env, user, 'site', data);
+    case 'fr': return goStep(env, user, 'site', data);
     case 'site': data.onSite = parts[2] === '1'; return goStep(env, user, 'preview', data);
-    case 'redo': return goStep(env, user, 'country', {});
+    case 'redo': return goStep(env, user, 'mode', {});
     case 'sub': return submitAd(env, user, data);
   }
 }
@@ -336,11 +484,11 @@ async function submitAd(env, user, data) {
     await clearSession(env, user.id);
     return send(env, user.id, limit, { reply_markup: menuFor(env, user) });
   }
+  const d = draftToAd(user, data);
   const res = await env.DB.prepare(
-    `INSERT INTO ads (user_id, country, city, category, title, body, price, photos, contact, on_site, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-  ).bind(user.id, data.country, data.city, data.category, data.title, data.body, data.price,
-    JSON.stringify(data.photos || []), data.contact, data.onSite ? 1 : 0, now()).run();
+    `INSERT INTO ads (user_id, kind, country, city, category, title, body, price, photos, contact, on_site, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).bind(user.id, d.kind, d.country, d.city, d.category, d.title, d.body, d.price, d.photos, d.contact, d.on_site, now()).run();
   const id = res.meta.last_row_id;
   await clearSession(env, user.id);
   const ad = await getAd(env, id);
