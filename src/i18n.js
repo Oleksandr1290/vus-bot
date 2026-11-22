@@ -10,6 +10,7 @@ const T = {
     menu_report: '⚠️ Поскаржитися',
     menu_admin: '🙋 Стати адміном',
     menu_help: 'ℹ️ Допомога',
+    menu_panel: '🛡 Адмін-панель',
     back: '⬅️ Назад',
     cancel: '✖️ Скасувати',
     cancelled: 'Скасовано.',
@@ -85,6 +86,7 @@ const T = {
     menu_report: '⚠️ Пожаловаться',
     menu_admin: '🙋 Стать админом',
     menu_help: 'ℹ️ Помощь',
+    menu_panel: '🛡 Админ-панель',
     back: '⬅️ Назад',
     cancel: '✖️ Отменить',
     cancelled: 'Отменено.',
@@ -160,6 +162,7 @@ const T = {
     menu_report: '⚠️ Report',
     menu_admin: '🙋 Become an admin',
     menu_help: 'ℹ️ Help',
+    menu_panel: '🛡 Admin panel',
     back: '⬅️ Back',
     cancel: '✖️ Cancel',
     cancelled: 'Cancelled.',
@@ -239,7 +242,7 @@ export function t(lang, key, vars = {}) {
 // Find which menu button a text corresponds to, in any language.
 export function menuKeyOf(text) {
   for (const lang of LANGS) {
-    for (const key of ['menu_new', 'menu_my', 'menu_report', 'menu_admin', 'menu_help']) {
+    for (const key of ['menu_new', 'menu_my', 'menu_report', 'menu_admin', 'menu_help', 'menu_panel']) {
       if (T[lang][key] === text) return key;
     }
   }
