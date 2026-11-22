@@ -12,8 +12,8 @@ database_id = "4410d733-2bb6-4469-b370-0dd67ae9f7c9"
 
 [vars]
 BOT_USERNAME = "vus_ua_bot"
-CHANNEL_USERNAME = "vus_ogoloshennya_ua"
+CHANNEL_USERNAME = "vus_ua"
 GROUP_USERNAME = "vus_chat"
-CHANNEL_ID = "@vus_ua"
+CHANNEL_ID = "-1004410791584"
 ADMIN_CHAT_ID = "-1004302081989"
 OWNER_ID = "1463957271"
