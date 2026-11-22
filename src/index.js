@@ -88,13 +88,19 @@ const getAd = (env, id) => env.DB.prepare('SELECT * FROM ads WHERE id = ?').bind
 
 // ───────────────────────────── keyboards ─────────────────────────────
 
-function mainMenu(lang) {
+const isOwner = (env, id) => String(id) === String(env.OWNER_ID);
+
+const menuFor = (env, user) => mainMenu(user.lang, isOwner(env, user.id));
+
+function mainMenu(lang, owner = false) {
+  const rows = [
+    [{ text: t(lang, 'menu_new') }],
+    [{ text: t(lang, 'menu_my') }, { text: t(lang, 'menu_report') }],
+    [{ text: t(lang, 'menu_admin') }, { text: t(lang, 'menu_help') }],
+  ];
+  if (owner) rows.unshift([{ text: t(lang, 'menu_panel') }]);
   return {
-    keyboard: [
-      [{ text: t(lang, 'menu_new') }],
-      [{ text: t(lang, 'menu_my') }, { text: t(lang, 'menu_report') }],
-      [{ text: t(lang, 'menu_admin') }, { text: t(lang, 'menu_help') }],
-    ],
+    keyboard: rows,
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -125,7 +131,7 @@ const send = (env, chatId, text, extra = {}) =>
   tg(env, 'sendMessage', { chat_id: chatId, text, disable_web_page_preview: true, ...extra });
 
 const showMenu = (env, user, key = 'menu_hint') =>
-  send(env, user.id, t(user.lang, key), { reply_markup: mainMenu(user.lang) });
+  send(env, user.id, t(user.lang, key), { reply_markup: menuFor(env, user) });
 
 const removeButtons = (env, msg) =>
   tg(env, 'editMessageReplyMarkup', { chat_id: msg.chat.id, message_id: msg.message_id, reply_markup: { inline_keyboard: [] } });
@@ -179,6 +185,9 @@ async function onMenu(env, user, key) {
     case 'menu_report':
     case 'menu_admin':
       return send(env, user.id, t(user.lang, 'soon'));
+    case 'menu_panel':
+      if (!isOwner(env, user.id)) return showMenu(env, user);
+      return showPanel(env, user);
     case 'menu_help':
       return send(env, user.id, t(user.lang, 'help', {
         channel: env.CHANNEL_USERNAME || 'vus_ua',
@@ -199,6 +208,7 @@ function prevStep(step, data) {
 }
 
 async function checkLimits(env, user) {
+  if (isOwner(env, user.id)) return null; // владелец — без лимитов
   const since = now() - DAY;
   const day = await env.DB.prepare(
     'SELECT COUNT(*) AS n, MIN(created_at) AS first FROM ads WHERE user_id = ? AND created_at > ?'
@@ -216,7 +226,7 @@ async function checkLimits(env, user) {
 
 async function startAd(env, user) {
   const limit = await checkLimits(env, user);
-  if (limit) return send(env, user.id, limit, { reply_markup: mainMenu(user.lang) });
+  if (limit) return send(env, user.id, limit, { reply_markup: menuFor(env, user) });
   const data = {};
   await setSession(env, user.id, 'ad:country', data);
   return promptStep(env, user, 'country', data);
@@ -404,7 +414,7 @@ async function submitAd(env, user, data) {
   const limit = await checkLimits(env, user);
   if (limit) {
     await clearSession(env, user.id);
-    return send(env, user.id, limit, { reply_markup: mainMenu(user.lang) });
+    return send(env, user.id, limit, { reply_markup: menuFor(env, user) });
   }
   const res = await env.DB.prepare(
     `INSERT INTO ads (user_id, country, city, category, title, body, price, photos, contact, on_site, status, created_at)
@@ -415,8 +425,17 @@ async function submitAd(env, user, data) {
   await clearSession(env, user.id);
 
   const ad = await getAd(env, id);
+
+  // Объявления владельца публикуются сразу, без модерации.
+  if (isOwner(env, user.id)) {
+    const r = await publishAd(env, ad, user.id);
+    if (!r.ok) return send(env, user.id, `⚠️ Не вдалося опублікувати #${id}: ${r.error}`, { reply_markup: menuFor(env, user) });
+    const link = env.CHANNEL_USERNAME ? `https://t.me/${env.CHANNEL_USERNAME}/${r.ids[0]}` : '';
+    return send(env, user.id, t(user.lang, 'published_user', { id, link }), { reply_markup: menuFor(env, user) });
+  }
+
   await sendAdminCard(env, ad, user);
-  return send(env, user.id, t(user.lang, 'submitted', { id }), { reply_markup: mainMenu(user.lang) });
+  return send(env, user.id, t(user.lang, 'submitted', { id }), { reply_markup: menuFor(env, user) });
 }
 
 // ───────────────────────────── post rendering ─────────────────────────────
@@ -457,19 +476,20 @@ async function sendPost(env, chatId, ad, keyboard) {
   const photos = JSON.parse(ad.photos || '[]');
   const kbExtra = keyboard ? { reply_markup: keyboard } : {};
   const ids = [];
+  let err = null;
 
   if (photos.length === 0) {
     const r = await send(env, chatId, html, { parse_mode: 'HTML', ...kbExtra });
-    if (r.ok) ids.push(r.result.message_id);
-    return { ids, kind: 'text' };
+    if (r.ok) ids.push(r.result.message_id); else err = r.description;
+    return { ids, kind: 'text', error: err };
   }
 
   const fits = plainLength(html) <= 1024;
 
   if (photos.length === 1 && fits) {
     const r = await tg(env, 'sendPhoto', { chat_id: chatId, photo: photos[0], caption: html, parse_mode: 'HTML', ...kbExtra });
-    if (r.ok) ids.push(r.result.message_id);
-    return { ids, kind: 'photo' };
+    if (r.ok) ids.push(r.result.message_id); else err = r.description;
+    return { ids, kind: 'photo', error: err };
   }
 
   // Several photos (or a caption too long for a photo): album first.
@@ -480,17 +500,17 @@ async function sendPost(env, chatId, ad, keyboard) {
   }));
   if (media.length === 1) {
     const r = await tg(env, 'sendPhoto', { chat_id: chatId, photo: photos[0] });
-    if (r.ok) ids.push(r.result.message_id);
+    if (r.ok) ids.push(r.result.message_id); else err = r.description;
   } else {
     const r = await tg(env, 'sendMediaGroup', { chat_id: chatId, media });
-    if (r.ok) r.result.forEach((m) => ids.push(m.message_id));
+    if (r.ok) r.result.forEach((m) => ids.push(m.message_id)); else err = r.description;
   }
-  if (fits && !keyboard) return { ids, kind: 'album' };
+  if (fits && !keyboard) return { ids, kind: 'album', error: err };
 
   // Text with buttons right under the photos.
   const r = await send(env, chatId, html, { parse_mode: 'HTML', ...kbExtra });
-  if (r.ok) ids.push(r.result.message_id);
-  return { ids, kind: 'mixed' };
+  if (r.ok) ids.push(r.result.message_id); else err = r.description;
+  return { ids, kind: 'mixed', error: err };
 }
 
 async function removeFromChannel(env, ad) {
@@ -509,6 +529,29 @@ async function removeFromChannel(env, ad) {
   } else {
     await tg(env, 'editMessageCaption', { chat_id: env.CHANNEL_ID, message_id: ids[0], caption: html, parse_mode: 'HTML' });
   }
+}
+
+// Публикует объявление в канал и помечает его опубликованным.
+async function publishAd(env, ad, byId) {
+  const { ids, kind, error } = await sendPost(env, env.CHANNEL_ID, ad, channelKeyboard(env, ad.id));
+  if (!ids.length || error) {
+    for (const id of ids) await tg(env, 'deleteMessage', { chat_id: env.CHANNEL_ID, message_id: id });
+    return { ok: false, error: explainError(error) };
+  }
+  const ts = now();
+  await env.DB.prepare(
+    `UPDATE ads SET status = 'published', channel_msg_ids = ?, channel_kind = ?, moderated_by = ?,
+     published_at = ?, expires_at = ?, reminded = 0 WHERE id = ?`
+  ).bind(JSON.stringify(ids), kind, byId, ts, ts + AD_LIFETIME, ad.id).run();
+  return { ok: true, ids };
+}
+
+function explainError(e) {
+  const d = String(e || 'невідома помилка');
+  if (/chat not found/i.test(d)) return 'канал не знайдено — перевір CHANNEL_ID у wrangler.toml (точний @юзернейм каналу)';
+  if (/not enough rights|administrator|CHAT_ADMIN_REQUIRED|need administrator/i.test(d)) return 'у бота немає прав публікації в каналі';
+  if (/wrong file identifier|file/i.test(d)) return 'проблема з фото: ' + d;
+  return d;
 }
 
 // ───────────────────────────── moderation ─────────────────────────────
@@ -579,20 +622,14 @@ async function onModeration(env, cq, parts) {
   }
 
   if (action === 'ok') {
-    const { ids, kind } = await sendPost(env, env.CHANNEL_ID, ad, channelKeyboard(env, ad.id));
-    if (!ids.length) return answer(env, cq, 'Не вдалося опублікувати — перевірте права бота в каналі');
-    const ts = now();
-    await env.DB.prepare(
-      `UPDATE ads SET status = 'published', channel_msg_ids = ?, channel_kind = ?, moderated_by = ?,
-       published_at = ?, expires_at = ?, reminded = 0 WHERE id = ?`
-    ).bind(JSON.stringify(ids), kind, cq.from.id, ts, ts + AD_LIFETIME, ad.id).run();
-
+    const r = await publishAd(env, ad, cq.from.id);
+    if (!r.ok) return tg(env, 'answerCallbackQuery', { callback_query_id: cq.id, text: `Не вдалося опублікувати: ${r.error}`.slice(0, 190), show_alert: true });
     await tg(env, 'editMessageText', {
       chat_id: msg.chat.id, message_id: msg.message_id, parse_mode: 'HTML', disable_web_page_preview: true,
       text: adminCard(env, ad, author, `✅ Опубліковано — ${esc(whoName(cq.from))}`),
     });
     if (author) {
-      const link = env.CHANNEL_USERNAME ? `https://t.me/${env.CHANNEL_USERNAME}/${ids[0]}` : '';
+      const link = env.CHANNEL_USERNAME ? `https://t.me/${env.CHANNEL_USERNAME}/${r.ids[0]}` : '';
       await send(env, author.id, t(author.lang, 'published_user', { id: ad.id, link }));
     }
     return answer(env, cq, 'Опубліковано');
@@ -633,7 +670,7 @@ async function showMyAds(env, user) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM ads WHERE user_id = ? AND status != 'deleted' ORDER BY id DESC LIMIT 10"
   ).bind(user.id).all();
-  if (!results.length) return send(env, user.id, t(L, 'my_empty'), { reply_markup: mainMenu(L) });
+  if (!results.length) return send(env, user.id, t(L, 'my_empty'), { reply_markup: menuFor(env, user) });
   await send(env, user.id, t(L, 'my_title'));
   for (const ad of results) {
     await send(env, user.id, myAdText(L, ad), { parse_mode: 'HTML', reply_markup: myAdButtons(L, ad) });
@@ -686,7 +723,8 @@ async function onCallback(cq, env) {
 
   // Moderation buttons live in the private admin channel.
   if (parts[0] === 'mod') {
-    if (!chat || String(chat.id) !== String(env.ADMIN_CHAT_ID)) return answer(env, cq);
+    const fromAdminChat = chat && String(chat.id) === String(env.ADMIN_CHAT_ID);
+    if (!fromAdminChat && !isOwner(env, cq.from.id)) return answer(env, cq);
     return onModeration(env, cq, parts);
   }
 
@@ -729,7 +767,58 @@ async function onCallback(cq, env) {
 
   if (parts[0] === 'my') return onMyButton(env, user, cq, parts);
 
+  if (parts[0] === 'pan' && isOwner(env, user.id)) {
+    await answer(env, cq);
+    if (parts[1] === 'pending') return panelPending(env, user);
+    if (parts[1] === 'stats') return panelStats(env, user);
+  }
+
   return answer(env, cq);
+}
+
+// ───────────────────────────── owner panel ─────────────────────────────
+
+async function showPanel(env, user) {
+  const p = await env.DB.prepare("SELECT COUNT(*) AS n FROM ads WHERE status = 'pending'").first();
+  return send(env, user.id, '🛡 <b>Адмін-панель ВУС</b>\n\nПовна панель (репорти, бани, адміни, журнал) з’явиться на етапі 3.', {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: [
+      [{ text: `📥 На модерації (${p.n})`, callback_data: 'pan:pending' }],
+      [{ text: '📊 Статистика', callback_data: 'pan:stats' }],
+    ] },
+  });
+}
+
+async function panelPending(env, user) {
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM ads WHERE status = 'pending' ORDER BY id LIMIT 10"
+  ).all();
+  if (!results.length) return send(env, user.id, '📥 Немає оголошень на модерації.');
+  for (const ad of results) {
+    const author = await getUser(env, ad.user_id);
+    const photos = JSON.parse(ad.photos || '[]');
+    if (photos.length === 1) await tg(env, 'sendPhoto', { chat_id: user.id, photo: photos[0] });
+    if (photos.length > 1) await tg(env, 'sendMediaGroup', { chat_id: user.id, media: photos.map((p) => ({ type: 'photo', media: p })) });
+    await send(env, user.id, adminCard(env, ad, author), { parse_mode: 'HTML', reply_markup: modButtons(ad.id) });
+  }
+}
+
+async function panelStats(env, user) {
+  const day = now() - DAY;
+  const q = (sql, ...b) => env.DB.prepare(sql).bind(...b).first();
+  const users = await q('SELECT COUNT(*) AS n FROM users');
+  const usersDay = await q('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', day);
+  const pub = await q("SELECT COUNT(*) AS n FROM ads WHERE status = 'published'");
+  const pend = await q("SELECT COUNT(*) AS n FROM ads WHERE status = 'pending'");
+  const adsDay = await q('SELECT COUNT(*) AS n FROM ads WHERE created_at > ?', day);
+  const total = await q('SELECT COUNT(*) AS n FROM ads');
+  return send(env, user.id,
+    `📊 <b>Статистика ВУС</b>\n\n` +
+    `👥 Користувачів бота: ${users.n} (за добу +${usersDay.n})\n` +
+    `✅ Активних оголошень: ${pub.n}\n` +
+    `⏳ На модерації: ${pend.n}\n` +
+    `📝 Подано за добу: ${adsDay.n}\n` +
+    `📦 Усього оголошень: ${total.n}`, { parse_mode: 'HTML' });
 }
 
 // ───────────────────────────── cron: reminders and expiry ─────────────────────────────
