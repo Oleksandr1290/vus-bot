@@ -794,7 +794,17 @@ export async function onStaffCommand(env, user, cmd, args) {
   if (!user.isOwner) return false;
   switch (cmd) {
     case 'applications': return listApplications(env, user);
-    case 'setup': return runSetup(env, user);
+    case 'setup': {
+      if (!args) return runSetup(env, user);
+      // /setup @group or /setup -100123… — bind the group from the private chat.
+      const chatRef = /^-?\d+$/.test(args) ? Number(args) : '@' + args.replace(/^@|^https?:\/\/t\.me\//g, '');
+      const chat = await tg(env, 'getChat', { chat_id: chatRef });
+      if (!chat.ok) return send(env, user.id, `Не вдалося знайти групу ${args}: ${chat.description}. Перевірте, що бот доданий у групу.`);
+      if (chat.result.type !== 'supergroup' && chat.result.type !== 'group') return send(env, user.id, 'Це не група. Вкажіть @юзернейм або ID саме групи.');
+      const me = await tg(env, 'getChatMember', { chat_id: chat.result.id, user_id: user.id });
+      if (!me.ok || !['creator', 'administrator'].includes(me.result.status)) return send(env, user.id, 'Ви не є адміністратором цієї групи.');
+      return runSetup(env, user, chat.result);
+    }
     case 'post':
       await setSession(env, user.id, 'adm:post', {});
       return send(env, user.id, '📢 Надішліть новину одним повідомленням: текст, фото з підписом або відео. Я покажу кнопки публікації.',
@@ -948,7 +958,14 @@ export async function onStaffButton(env, user, cq, parts) {
 // ───────────────────────────── group and chat_member updates ─────────────────────────────
 
 export async function onGroupMessage(env, msg) {
-  if (!msg.from || msg.from.is_bot) return;
+  if (!msg.from) return;
+  const raw = (msg.text || '').trim().split(/\s|@/)[0].toLowerCase();
+  // Anonymous admin or a message sent "as the channel": the bot can't see who wrote it.
+  if (raw === '/setup' && (msg.sender_chat || msg.from.username === 'GroupAnonymousBot')) {
+    await send(env, env.OWNER_ID, `Бот не бачить, хто написав /setup у групі (повідомлення надіслано анонімно або від імені каналу).\n\nНапишіть мені тут у особистих: /setup ${msg.chat.username ? '@' + msg.chat.username : msg.chat.id}`);
+    return;
+  }
+  if (msg.from.is_bot) return;
   const text = (msg.text || '').trim();
   const cmd = text.split(/\s|@/)[0].toLowerCase();
 
