@@ -2,19 +2,18 @@ name = "vus-bot"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
 
-# Проверка напоминаний и истёкших объявлений — каждый час
 [triggers]
 crons = ["0 * * * *"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "vus-db"
-database_id = "ВСТАВЬ_СЮДА_ID_БАЗЫ"
+database_id = "4410d733-2bb6-4469-b370-0dd67ae9f7c9"
 
 [vars]
 BOT_USERNAME = "vus_ua_bot"
 CHANNEL_USERNAME = "vus_ua"
 GROUP_USERNAME = "vus_chat"
 CHANNEL_ID = "@vus_ua"
-ADMIN_CHAT_ID = "ВСТАВЬ_ID_АДМИНКИ"
-OWNER_ID = "ВСТАВЬ_СВОЙ_TELEGRAM_ID"
+ADMIN_CHAT_ID = "-1004302081989"
+OWNER_ID = "1463957271"
