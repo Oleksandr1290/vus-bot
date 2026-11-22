@@ -11,6 +11,28 @@ export const AD_LIFETIME = 30 * DAY;
 export const LIMIT_PER_DAY = 1;
 export const LIMIT_ACTIVE = 5;
 export const MAX_PHOTOS = 3;
+
+// Рівні програми запрошень (трек «Більше оголошень»).
+export const LEVELS = [
+  { level: 0, need: 0,  perDay: 1, active: 5,  days: 30 },
+  { level: 1, need: 5,  perDay: 2, active: 8,  days: 30 },
+  { level: 2, need: 15, perDay: 3, active: 12, days: 45 },
+  { level: 3, need: 30, perDay: 5, active: 20, days: 60, priority: true, bump: true },
+];
+export const ADMIN_REFS_NEEDED = 10;
+
+export async function refCount(env, uid, track, status = 'counted') {
+  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM referrals WHERE inviter_id = ? AND track = ? AND status = ?')
+    .bind(uid, track, status).first();
+  return r ? r.n : 0;
+}
+
+export async function levelOf(env, uid) {
+  const n = await refCount(env, uid, 'limits');
+  let lv = LEVELS[0];
+  for (const l of LEVELS) if (n >= l.need) lv = l;
+  return { ...lv, n };
+}
 export const MUTE_BAN_THRESHOLD = 130; // годин: більше — вічний бан
 export const LINK_RE = /(https?:\/\/|www\.|t\.me\/|telegram\.me\/|\.(com|net|org|ru|ua|pl|de)\b)/i;
 
@@ -37,12 +59,22 @@ export async function ensureSchema(env) {
        options TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, lang TEXT, created_at INTEGER NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS violations (user_id INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS idx_viol_user ON violations(user_id, created_at)`,
+    `CREATE TABLE IF NOT EXISTS ref_links (user_id INTEGER NOT NULL, track TEXT NOT NULL, invite_link TEXT NOT NULL,
+       created_at INTEGER NOT NULL, PRIMARY KEY (user_id, track))`,
+    `CREATE INDEX IF NOT EXISTS idx_ref_links_link ON ref_links(invite_link)`,
+    `CREATE TABLE IF NOT EXISTS referrals (id INTEGER PRIMARY KEY AUTOINCREMENT, inviter_id INTEGER NOT NULL, track TEXT NOT NULL,
+       invitee_id INTEGER NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', joined_at INTEGER NOT NULL, counted_at INTEGER)`,
+    `CREATE INDEX IF NOT EXISTS idx_ref_inviter ON referrals(inviter_id, track, status)`,
+    `CREATE TABLE IF NOT EXISTS channel_seen (user_id INTEGER PRIMARY KEY, first_seen INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS ref_blocked (user_id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS bumps (ad_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER, action TEXT NOT NULL,
        target_id INTEGER, details TEXT, created_at INTEGER NOT NULL)`,
   ];
   await env.DB.batch(stmts.map((s) => env.DB.prepare(s)));
   // New column for ads sent as ready-made text (fails harmlessly if it already exists).
   try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN kind TEXT').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN star INTEGER NOT NULL DEFAULT 0').run(); } catch (e) { /* already there */ }
   schemaReady = true;
 }
 
@@ -112,7 +144,8 @@ export function mainMenu(lang, staff = false) {
   const rows = [
     [{ text: t(lang, 'menu_new') }],
     [{ text: t(lang, 'menu_my') }, { text: t(lang, 'menu_report') }],
-    [{ text: t(lang, 'menu_admin') }, { text: t(lang, 'menu_help') }],
+    [{ text: t(lang, 'menu_invite') }, { text: t(lang, 'menu_admin') }],
+    [{ text: t(lang, 'menu_help') }],
   ];
   if (staff) rows.unshift([{ text: t(lang, 'menu_panel') }]);
   return { keyboard: rows, resize_keyboard: true, is_persistent: true };
@@ -171,7 +204,7 @@ export function buildPost(ad, env) {
   const cat = categoryByKey(ad.category);
   const tags = [hashtag(ad.country), hashtag(ad.city), cat ? '#' + cat.tag : ''].filter(Boolean).join(' ');
   const bot = env.BOT_USERNAME || 'vus_ua_bot';
-  const footer = `➕ Подати своє оголошення безкоштовно: @${bot}`;
+  const footer = (ad.star ? '⭐ Активний учасник ВУС\n\n' : '') + `➕ Подати своє оголошення безкоштовно: @${bot}`;
 
   // Ready-made text from the author.
   if (ad.kind === 'free') return `${tags}\n\n${esc(ad.body)}\n\n${footer}`;
@@ -265,6 +298,8 @@ export function explainError(e) {
 }
 
 export async function publishAd(env, ad, byId) {
+  const lv = await levelOf(env, ad.user_id);
+  ad.star = lv.level >= 2 ? 1 : 0; // значок ⭐ з рівня 2 (15 запрошень)
   const { ids, kind, error } = await sendPost(env, env.CHANNEL_ID, ad, channelKeyboard(env, ad.id));
   if (!ids.length || error) {
     for (const id of ids) await tg(env, 'deleteMessage', { chat_id: env.CHANNEL_ID, message_id: id });
@@ -273,8 +308,8 @@ export async function publishAd(env, ad, byId) {
   const ts = now();
   await env.DB.prepare(
     `UPDATE ads SET status = 'published', channel_msg_ids = ?, channel_kind = ?, moderated_by = ?,
-     published_at = ?, expires_at = ?, reminded = 0 WHERE id = ?`
-  ).bind(JSON.stringify(ids), kind, byId, ts, ts + AD_LIFETIME, ad.id).run();
+     published_at = ?, expires_at = ?, reminded = 0, star = ? WHERE id = ?`
+  ).bind(JSON.stringify(ids), kind, byId, ts, ts + lv.days * DAY, ad.star, ad.id).run();
   return { ok: true, ids };
 }
 
@@ -290,7 +325,7 @@ export const adByChannelMsg = (env, msgId) =>
 // ───────────────────────────── ad moderation card ─────────────────────────────
 
 export function adminCard(env, ad, author, statusLine = '') {
-  return `🆕 <b>Оголошення #${ad.id}</b> на модерації\n` +
+  return `🆕 <b>Оголошення #${ad.id}</b> на модерації${ad.priority ? ' · ⚡ пріоритет' : ''}\n` +
     `Автор: ${userLabel(author, ad.user_id)}\n` +
     `Сайт: ${ad.on_site ? 'так' : 'ні'}\n` +
     `────────────\n` +
@@ -307,6 +342,7 @@ export const modButtons = (id) => ({
 
 export async function sendAdminCard(env, ad, author, chatId = env.ADMIN_CHAT_ID) {
   if (!chatId) return console.log('ADMIN_CHAT_ID is not set');
+  ad.priority = (await levelOf(env, ad.user_id)).priority ? 1 : 0;
   const photos = JSON.parse(ad.photos || '[]');
   if (photos.length === 1) await tg(env, 'sendPhoto', { chat_id: chatId, photo: photos[0] });
   if (photos.length > 1) await tg(env, 'sendMediaGroup', { chat_id: chatId, media: photos.map((p) => ({ type: 'photo', media: p })) });

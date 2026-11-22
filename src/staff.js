@@ -8,6 +8,8 @@ import {
   removeFromChannel, postLink, adByChannelMsg, adminCard, modButtons, mainMenu,
 } from './common.js';
 import { filterGroupMessage, onJoined } from './guard.js';
+import { onInviteeBanned } from './referral.js';
+import { refCount, levelOf, ADMIN_REFS_NEEDED } from './common.js';
 
 const BOT = (env) => env.BOT_USERNAME || 'vus_ua_bot';
 
@@ -366,6 +368,7 @@ async function applyBan(env, staff, uid, reasonKey, rid = null, deleteAds = fals
   await env.DB.prepare("INSERT INTO punishments (user_id, type, reason, by_id, report_id, created_at) VALUES (?, 'ban', ?, ?, ?, ?)")
     .bind(uid, reasonKey, staff.id, rid, now()).run();
   await logAction(env, staff.id, 'ban', uid, deleteAds ? `+ видалено оголошень: ${removed}` : '');
+  await onInviteeBanned(env, uid);
   const u = await getUser(env, uid);
   await notifyUser(env, uid, 'banned_user', { reason: reasonFor((u && u.lang) || 'ua', reasonKey) });
   if (rid) await closeReport(env, rid, 'ban', deleteAds ? `⛔ Бан + видалено оголошень: ${removed}` : '⛔ Вічний бан', staff);
@@ -419,8 +422,10 @@ export async function showPanel(env, user) {
 }
 
 export async function listPendingAds(env, user) {
-  const { results } = await env.DB.prepare("SELECT * FROM ads WHERE status = 'pending' ORDER BY id LIMIT 10").all();
-  if (!results.length) return send(env, user.id, '📥 Немає оголошень на модерації.');
+  const { results: rows } = await env.DB.prepare("SELECT * FROM ads WHERE status = 'pending' ORDER BY id LIMIT 30").all();
+  if (!rows.length) return send(env, user.id, '📥 Немає оголошень на модерації.');
+  for (const ad of rows) ad.priority = (await levelOf(env, ad.user_id)).priority ? 1 : 0;
+  const results = rows.sort((a, b) => b.priority - a.priority || a.id - b.id).slice(0, 10);
   for (const ad of results) {
     const author = await getUser(env, ad.user_id);
     const photos = JSON.parse(ad.photos || '[]');
@@ -479,7 +484,7 @@ const ACTION_UA = {
   warn: '⚠️ попередження', mute: '🔇 мут', ban: '⛔ бан', unban: '✅ розбан', delete_ad: '🗑 видалив оголошення',
   publish_ad: '✅ опублікував', reject_ad: '❌ відхилив', reject_report: '✅ відхилив скаргу', admin_add: '🛡 новий адмін',
   admin_remove: '➖ зняв адміна', post: '📢 новина', setup: '📌 /setup',
-  auto_mute: '🔇 автомут за спам', cas_ban: '🛡 бан за базою CAS',
+  auto_mute: '🔇 автомут за спам', cas_ban: '🛡 бан за базою CAS', ref_block: '🚫 виключено з програми запрошень',
 };
 
 async function showLog(env, user) {
@@ -525,6 +530,12 @@ async function userCard(env, staff, query) {
 export async function startApplication(env, user) {
   const L = user.lang;
   if (user.isStaff) return send(env, user.id, t(L, 'app_already'), { reply_markup: menuFor(env, user) });
+  const refs = await refCount(env, user.id, 'admin');
+  if (refs < ADMIN_REFS_NEEDED) {
+    return send(env, user.id, t(L, 'app_need_refs', { n: refs, need: ADMIN_REFS_NEEDED }), {
+      reply_markup: { inline_keyboard: [[{ text: t(L, 'app_open_program'), callback_data: 'ref:join:admin' }]] },
+    });
+  }
   const last = await env.DB.prepare('SELECT created_at FROM applications WHERE user_id = ? ORDER BY id DESC LIMIT 1').bind(user.id).first();
   if (last && last.created_at > now() - 30 * DAY) return send(env, user.id, t(L, 'app_cooldown'), { reply_markup: menuFor(env, user) });
   await setSession(env, user.id, 'app:1', { answers: [] });
@@ -674,6 +685,9 @@ ${own}
 3. Мут понад ${MUTE_BAN_THRESHOLD} годин = вічний бан
 4. Картка тут оновиться сама, автор скарги отримає відповідь
 
+<b>Програма запрошень</b>
+Анкету в адміни можна подати лише після ${ADMIN_REFS_NEEDED} зарахованих запрошень. Запрошення рахуються через 3 дні в каналі; якщо запрошеного забанити, він не рахується.
+
 <b>Правила для адмінів</b>
 • Кожне рішення записується в журнал (/log)
 • Сумнівний випадок — залиште власнику
@@ -703,6 +717,7 @@ export async function runSetup(env, owner, groupChat = null) {
   // 1. Rights.
   lines.push(await checkRights(env, botId, env.CHANNEL_ID, [
     ['can_post_messages', 'публікація'], ['can_edit_messages', 'редагування'], ['can_delete_messages', 'видалення'],
+    ['can_invite_users', 'запрошення (для програми запрошень)'],
   ], 'Канал оголошень'));
   lines.push(await checkRights(env, botId, env.ADMIN_CHAT_ID, [
     ['can_post_messages', 'публікація'], ['can_edit_messages', 'редагування'], ['can_invite_users', 'запрошення'],

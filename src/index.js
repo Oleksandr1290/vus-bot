@@ -5,7 +5,7 @@ import {
   ensureSchema, upsertUser, getUser, getSession, setSession, clearSession, getAd,
   isOwner, isStaffId, logAction,
   menuFor, navRow, pairs, send, sendHtml, showMenu, removeButtons, answer, whoName,
-  sendPost, removeFromChannel, publishAd, postLink, adminCard, modButtons, sendAdminCard,
+  sendPost, removeFromChannel, publishAd, postLink, adminCard, modButtons, sendAdminCard, channelKeyboard,
 } from './common.js';
 import { menuKeyOf, LANGS } from './i18n.js';
 import { COUNTRIES, CATEGORIES, countryByCode, categoryByKey, parsePrice } from './data.js';
@@ -16,6 +16,8 @@ import {
   onGroupMessage, onChatMember,
 } from './staff.js';
 import { onJoinRequest, onCaptchaButton, cronGuard } from './guard.js';
+import { showInvite, onRefButton, onChannelMember, cronReferral } from './referral.js';
+import { levelOf } from './common.js';
 
 // ───────────────────────────── entry points ─────────────────────────────
 
@@ -64,7 +66,10 @@ async function handleUpdate(update, env) {
   const m = update.message;
   if (m && m.chat.type === 'private') return onPrivateMessage(m, env);
   if (m && (m.chat.type === 'supergroup' || m.chat.type === 'group')) return onGroupMessage(env, m);
-  if (update.chat_member) return onChatMember(env, update.chat_member);
+  if (update.chat_member) {
+    if (String(update.chat_member.chat.id) === String(env.CHANNEL_ID)) return onChannelMember(env, update.chat_member);
+    return onChatMember(env, update.chat_member);
+  }
   if (update.chat_join_request) return onJoinRequest(env, update.chat_join_request);
   if (update.callback_query) return onCallback(update.callback_query, env);
 }
@@ -138,6 +143,7 @@ async function onMenu(env, user, key) {
     case 'menu_report': return startReport(env, user);
     case 'menu_admin': return startApplication(env, user);
     case 'menu_panel': return user.isStaff ? showPanel(env, user) : showMenu(env, user);
+    case 'menu_invite': return showInvite(env, user);
     case 'menu_help':
       return send(env, user.id, t(user.lang, 'help', {
         channel: env.CHANNEL_USERNAME || 'vus_ua',
@@ -172,18 +178,19 @@ function prevStep(step, data) {
 
 async function checkLimits(env, user) {
   if (user.isStaff) return null; // власник і адміни — без лімітів
+  const lv = await levelOf(env, user.id);
   const since = now() - DAY;
   const day = await env.DB.prepare(
     'SELECT COUNT(*) AS n, MIN(created_at) AS first FROM ads WHERE user_id = ? AND created_at > ?'
   ).bind(user.id, since).first();
-  if (day.n >= LIMIT_PER_DAY) {
+  if (day.n >= lv.perDay) {
     const h = Math.max(1, Math.ceil((day.first + DAY - now()) / 3600));
     return t(user.lang, 'limit_day', { h });
   }
   const active = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM ads WHERE user_id = ? AND status IN ('pending','published')"
   ).bind(user.id).first();
-  if (active.n >= LIMIT_ACTIVE) return t(user.lang, 'limit_active', { n: active.n });
+  if (active.n >= lv.active) return t(user.lang, 'limit_active', { n: active.n });
   return null;
 }
 
@@ -516,6 +523,7 @@ async function onModeration(env, cq, parts) {
   const msg = cq.message;
   if (!ad) return answer(env, cq, 'Оголошення не знайдено');
   const author = await getUser(env, ad.user_id);
+  ad.priority = (await levelOf(env, ad.user_id)).priority ? 1 : 0;
 
   if (ad.status !== 'pending') {
     await removeButtons(env, msg);
@@ -587,9 +595,10 @@ function myAdText(L, ad) {
   return s;
 }
 
-function myAdButtons(L, ad) {
+function myAdButtons(L, ad, canBump = false) {
   const row = [];
   if (ad.status === 'published') row.push({ text: t(L, 'extend'), callback_data: `my:ext:${ad.id}` });
+  if (ad.status === 'published' && canBump) row.push({ text: t(L, 'bump_btn'), callback_data: `my:up:${ad.id}` });
   if (ad.status === 'published' || ad.status === 'pending') row.push({ text: t(L, 'delete'), callback_data: `my:del:${ad.id}` });
   return { inline_keyboard: row.length ? [row] : [] };
 }
@@ -600,8 +609,9 @@ async function showMyAds(env, user) {
     "SELECT * FROM ads WHERE user_id = ? AND status != 'deleted' ORDER BY id DESC LIMIT 10"
   ).bind(user.id).all();
   if (!results.length) return send(env, user.id, t(L, 'my_empty'), { reply_markup: menuFor(env, user) });
+  const lv = await levelOf(env, user.id);
   await send(env, user.id, t(L, 'my_title'));
-  for (const ad of results) await sendHtml(env, user.id, myAdText(L, ad), { reply_markup: myAdButtons(L, ad) });
+  for (const ad of results) await sendHtml(env, user.id, myAdText(L, ad), { reply_markup: myAdButtons(L, ad, !!lv.bump) });
 }
 
 async function onMyButton(env, user, cq, parts) {
@@ -613,7 +623,8 @@ async function onMyButton(env, user, cq, parts) {
   switch (parts[1]) {
     case 'ext': {
       if (ad.status !== 'published') return answer(env, cq, t(L, 'stale'));
-      const exp = now() + AD_LIFETIME;
+      const lv = await levelOf(env, user.id);
+      const exp = now() + lv.days * DAY;
       await env.DB.prepare('UPDATE ads SET expires_at = ?, reminded = 0 WHERE id = ?').bind(exp, ad.id).run();
       await answer(env, cq);
       return send(env, user.id, t(L, 'extended', { id: ad.id, d: fmtDate(exp) }));
@@ -627,9 +638,25 @@ async function onMyButton(env, user, cq, parts) {
         ]] },
       });
       return answer(env, cq, t(L, 'delete_confirm', { id: ad.id }));
-    case 'no':
-      await tg(env, 'editMessageReplyMarkup', { chat_id: msg.chat.id, message_id: msg.message_id, reply_markup: myAdButtons(L, ad) });
+    case 'no': {
+      const lv = await levelOf(env, user.id);
+      await tg(env, 'editMessageReplyMarkup', { chat_id: msg.chat.id, message_id: msg.message_id, reply_markup: myAdButtons(L, ad, !!lv.bump) });
       return answer(env, cq);
+    }
+    case 'up': {
+      const lv = await levelOf(env, user.id);
+      if (ad.status !== 'published' || !lv.bump) return answer(env, cq, t(L, 'stale'));
+      const last = await env.DB.prepare('SELECT MAX(created_at) AS ts FROM bumps WHERE user_id = ?').bind(user.id).first();
+      if (last && last.ts && last.ts > now() - 7 * DAY) return answer(env, cq, t(L, 'bump_wait', { d: fmtDate(last.ts + 7 * DAY) }), true);
+      await removeFromChannel(env, ad);
+      ad.star = 1;
+      const r = await sendPost(env, env.CHANNEL_ID, ad, channelKeyboard(env, ad.id));
+      if (!r.ids.length) return answer(env, cq, r.error || 'error', true);
+      await env.DB.prepare('UPDATE ads SET channel_msg_ids = ?, channel_kind = ?, star = 1 WHERE id = ?').bind(JSON.stringify(r.ids), r.kind, ad.id).run();
+      await env.DB.prepare('INSERT INTO bumps (ad_id, user_id, created_at) VALUES (?, ?, ?)').bind(ad.id, user.id, now()).run();
+      await answer(env, cq);
+      return send(env, user.id, t(L, 'bumped', { id: ad.id }) + '\n' + postLink(env, r.ids[0]));
+    }
     case 'delok': {
       if (ad.status === 'published') await removeFromChannel(env, ad);
       await env.DB.prepare("UPDATE ads SET status = 'deleted' WHERE id = ?").bind(ad.id).run();
@@ -698,6 +725,7 @@ async function onCallback(cq, env) {
   if (parts[0] === 'ad') return onAdButton(env, user, cq, parts);
   if (parts[0] === 'my') return onMyButton(env, user, cq, parts);
   if (parts[0] === 'rep') return onReportButton(env, user, cq, parts);
+  if (parts[0] === 'ref') return onRefButton(env, user, cq, parts);
 
   return answer(env, cq);
 }
@@ -729,6 +757,7 @@ async function runCron(env) {
   }
 
   await cronGuard(env);
+  await cronReferral(env);
 
   // Drafts abandoned for more than 2 days.
   await env.DB.prepare('DELETE FROM sessions WHERE updated_at < ?').bind(ts - 2 * DAY).run();
