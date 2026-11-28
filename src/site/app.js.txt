@@ -117,7 +117,6 @@ function renderHome() {
   $('featured-box').hidden = stars.length < 2;
   $('featured').innerHTML = stars.map(card).join('');
   $('count').innerHTML = esc(pl(items.length, 'found')) + (state.tag ? ' <span class="tag-on">' + tr('tag_on') + ' <b>#' + esc(state.tag) + '</b><button class="ghost" type="button" data-tagclear>' + tr('tag_clear') + '</button></span>' : '');
-  $('weekline').textContent = tr('week', { a: D.week ? D.week.ads : 0, b: D.week ? D.week.users : 0 });
   $('feed').innerHTML = items.length ? items.map(card).join('') :
     '<div class="zero"><p class="big">' + tr('zero_t') + '</p><p>' + tr('zero_p') + '</p><div class="row"><button class="btn" type="button" data-open-post>' + tr('post') + '</button><button class="ghost" type="button" data-notify>🔔 ' + tr('zero_notify') + '</button></div></div>';
   var opts = D.countries.map(function (c) {

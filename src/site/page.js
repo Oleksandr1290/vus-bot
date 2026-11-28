@@ -6,7 +6,7 @@ import { tt } from './i18n.js';
 import { DOCS } from './docs.js';
 import { CURRENCY, cityLatin, slug } from './data.js';
 
-export const ASSET_VERSION = '3';
+export const ASSET_VERSION = '4';
 
 const catName = (lang, key) => { const c = categoryByKey(key); return c ? (c[lang] || c.ua).replace(/^\S+\s/, '') : key; };
 const countryName = (lang, ua) => { const c = COUNTRIES.find((x) => x.ua === ua); return c ? (c[lang] || c.ua) : ua; };
@@ -150,7 +150,7 @@ export function homePage(env, { lang, ads, fx, counts, week, popular, preset = n
     </div>
     <div class="board" aria-hidden="true">
       <div class="note n1"><h3>Здам кімнату</h3><p>Варшава, Mokotów. Світла, тиха, поруч метро.</p><div class="tabs"><i>Варшава</i><i class="gone">Варшава</i><i>Варшава</i><i>Варшава</i><i>Варшава</i></div></div>
-      <div class="note n2"><h3>Потрібні водії</h3><p>Бухарест. Категорія C, офіційне працевлаштування.</p><div class="tabs"><i>Бухарест</i><i>Бухарест</i><i class="gone">Бухарест</i><i class="gone">Бухарест</i><i>Бухарест</i></div></div>
+      <div class="note n2"><h3>Потрібні водії</h3><p>Берлін. Категорія C, офіційне працевлаштування.</p><div class="tabs"><i>Берлін</i><i>Берлін</i><i class="gone">Берлін</i><i class="gone">Берлін</i><i>Берлін</i></div></div>
       <div class="note n3"><h3>Віддам даром</h3><p>Дитяча коляска, гарний стан. Прага, самовивіз.</p><div class="tabs"><i>Прага</i><i>Прага</i><i>Прага</i><i class="gone">Прага</i><i>Прага</i></div></div>
     </div>
   </section>
@@ -163,7 +163,7 @@ export function homePage(env, { lang, ads, fx, counts, week, popular, preset = n
         <li><i>🤝</i><div><b data-t="why3">${tt(lang, 'why3')}</b><span data-t="why3p">${tt(lang, 'why3p')}</span></div></li>
       </ul>
     </div>
-    <div class="letter"><p data-t="letter1">${tt(lang, 'letter1')}</p><p data-t="letter2">${tt(lang, 'letter2')}</p><p class="sign">— Олександр</p></div>
+    <div class="letter"><p data-t="letter1">${tt(lang, 'letter1')}</p><p data-t="letter2">${tt(lang, 'letter2')}</p><p class="sign">— Команда ВУС</p></div>
   </section>`}
   <section class="wrap" aria-label="Рубрики"><div class="cats" id="cats"></div></section>
   <section class="wrap main">
@@ -187,7 +187,6 @@ export function homePage(env, { lang, ads, fx, counts, week, popular, preset = n
         <div>
           <h2 id="feed-title" data-t="fresh">${tt(lang, 'fresh')}</h2>
           <p id="count">${plural(filtered.length, tt(lang, 'found'))}</p>
-          <p class="weekline" id="weekline">${tt(lang, 'week', { a: week.ads, b: week.users })}</p>
         </div>
         <div class="feed-tools">
           <select class="sort" id="sort" aria-label="Sort">

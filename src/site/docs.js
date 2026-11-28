@@ -25,20 +25,20 @@ export const DOCS = {
 <h2>Чого ми не робимо</h2><ul><li>Не продаємо й не передаємо ваші дані третім особам.</li><li>Не показуємо сторонню рекламу і не використовуємо рекламні трекери.</li></ul>
 <h2>Cookies</h2><p>Лише файл cookie входу (30 днів) і вибрана мова. Вибране місто зберігається у вашому браузері.</p>
 <h2>Ваші права</h2><p>Видалити оголошення можна в «Мій кабінет». Щоб видалити всі свої дані, надішліть боту команду /deletedata або напишіть через «💡 Ідея або відгук».</p>
-<h2>Де зберігаються дані</h2><p>На серверах Cloudflare. Власник проєкту: Олександр, Бухарест, Румунія.</p>`,
+<h2>Де зберігаються дані</h2><p>На серверах Cloudflare.</p>`,
     ru: `<h1>Конфиденциальность</h1><p>Коротко: мы собираем только то, без чего сайт не работает, и никому это не продаём.</p>
 <h2>Что мы получаем</h2><ul><li><b>При входе через Telegram:</b> ваш Telegram ID, имя, ник и фото профиля. Пароль и номер телефона Telegram нам не передаёт.</li><li><b>В объявлении:</b> текст, фото, город и контакт, который вы сами указали.</li><li><b>Статистика:</b> число просмотров объявлений и нажатий «Показать контакт» — без привязки к посетителям.</li></ul>
 <h2>Зачем</h2><ul><li>Чтобы показать ваше объявление, проверить, что вы участник сообщества, и отправить ответ модератора в Telegram.</li><li>Чтобы защищать сообщество от спама и мошенников.</li></ul>
 <h2>Чего мы не делаем</h2><ul><li>Не продаём и не передаём ваши данные третьим лицам.</li><li>Не показываем стороннюю рекламу и не используем рекламные трекеры.</li></ul>
 <h2>Cookies</h2><p>Только cookie входа (30 дней) и выбранный язык. Выбранный город хранится в вашем браузере.</p>
 <h2>Ваши права</h2><p>Удалить объявление можно в «Мой кабинет». Чтобы удалить все свои данные, отправьте боту команду /deletedata.</p>
-<h2>Где хранятся данные</h2><p>На серверах Cloudflare. Владелец проекта: Олександр, Бухарест, Румыния.</p>`,
+<h2>Где хранятся данные</h2><p>На серверах Cloudflare.</p>`,
     en: `<h1>Privacy</h1><p>In short: we collect only what the site needs to work, and we never sell it.</p>
 <h2>What we receive</h2><ul><li><b>When you log in with Telegram:</b> your Telegram ID, name, username and profile photo. Telegram does not share your password or phone number.</li><li><b>In an ad:</b> the text, photos, city and the contact you chose to show.</li><li><b>Statistics:</b> ad views and “Show contact” clicks — not linked to individual visitors.</li></ul>
 <h2>Why</h2><ul><li>To show your ad, check that you are a community member and send you the moderator’s answer in Telegram.</li><li>To protect the community from spam and scams.</li></ul>
 <h2>What we don’t do</h2><ul><li>We don’t sell or share your data with third parties.</li><li>No third-party ads, no ad trackers.</li></ul>
 <h2>Cookies</h2><p>Only the login cookie (30 days) and your language. Your chosen city is stored in your browser.</p>
 <h2>Your rights</h2><p>Delete an ad in “My account”. To delete all your data, send /deletedata to the bot.</p>
-<h2>Where data is stored</h2><p>On Cloudflare servers. Project owner: Oleksandr, Bucharest, Romania.</p>`,
+<h2>Where data is stored</h2><p>On Cloudflare servers.</p>`,
   },
 };
