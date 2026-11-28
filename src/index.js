@@ -17,6 +17,7 @@ import {
 } from './staff.js';
 import { cronWeekly } from './stats.js';
 import { cronNight } from './ai.js';
+import { isSiteRequest, handleSite } from './site/server.js';
 import {
   requireMembership, askIdea, onIdeaText, onIdeaButton, onIdeaReplyInput, askDeleteData, onDeleteDataButton,
   showDonate, onDonateButton, onPreCheckout, onPayment, cronDonations, donationsOn,
@@ -30,6 +31,11 @@ import { levelOf } from './common.js';
 
 export default {
   async fetch(request, env, ctx) {
+    const siteUrl = new URL(request.url);
+    if (isSiteRequest(env, siteUrl)) {
+      await ensureSchema(env);
+      return handleSite(request, env, ctx);
+    }
     const url = new URL(request.url);
 
     if (url.pathname === '/webhook' && request.method === 'POST') {
@@ -105,7 +111,12 @@ const langPicker = () => ({
   ]],
 });
 
+// Link to the ad on the website (when it is shown there).
+let env_SITE = '';
+const siteLine = (env, ad) => (env.SITE_URL && ad.on_site ? `\n\n🌐 На сайті: ${env.SITE_URL}/ad/${ad.id}` : '');
+
 async function onPrivateMessage(msg, env) {
+  env_SITE = env.SITE_URL || '';
   const user = await upsertUser(env, msg.from);
   const text = (msg.text || '').trim();
 
@@ -550,7 +561,7 @@ async function submitAd(env, user, data) {
     const r = await publishAd(env, ad, user.id);
     if (!r.ok) return send(env, user.id, `⚠️ Не вдалося опублікувати #${id}: ${r.error}`, { reply_markup: menuFor(env, user) });
     await notifyAlerts(env, ad, r.ids);
-    return send(env, user.id, t(user.lang, 'published_user', { id, link: postLink(env, r.ids[0]) }), { reply_markup: menuFor(env, user) });
+    return send(env, user.id, t(user.lang, 'published_user', { id, link: postLink(env, r.ids[0]) }) + siteLine(env, ad), { reply_markup: menuFor(env, user) });
   }
 
   await sendAdminCard(env, ad, user);
@@ -601,7 +612,7 @@ async function onModeration(env, cq, parts) {
     });
     await syncAdminCopy(env, ad, author, msg, status);
     await logAction(env, cq.from.id, 'publish_ad', ad.user_id, `#${ad.id}`);
-    if (author) await send(env, author.id, t(author.lang, 'published_user', { id: ad.id, link: postLink(env, r.ids[0]) }));
+    if (author) await send(env, author.id, t(author.lang, 'published_user', { id: ad.id, link: postLink(env, r.ids[0]) }) + siteLine(env, ad));
     return answer(env, cq, 'Опубліковано');
   }
 
@@ -638,6 +649,8 @@ async function syncAdminCopy(env, ad, author, msg, status) {
 function myAdText(L, ad) {
   let s = `<b>#${ad.id} · ${esc(ad.title)}</b>\n${t(L, `status_${ad.status}`)}`;
   if (ad.status === 'published') s += `\n${t(L, 'until', { d: fmtDate(ad.expires_at) })}`;
+  if (ad.status === 'published' || ad.status === 'expired') s += `\n👁 ${ad.views || 0} · 📞 ${ad.contact_clicks || 0}`;
+  if (ad.status === 'published' && ad.on_site && env_SITE) s += `\n🌐 ${env_SITE}/ad/${ad.id}`;
   return s;
 }
 

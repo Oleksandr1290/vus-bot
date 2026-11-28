@@ -142,6 +142,8 @@ export async function ensureSchema(env) {
   try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN star INTEGER NOT NULL DEFAULT 0').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE users ADD COLUMN last_seen INTEGER').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE reports ADD COLUMN msg_chat TEXT').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN views INTEGER NOT NULL DEFAULT 0').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN contact_clicks INTEGER NOT NULL DEFAULT 0').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE reports ADD COLUMN msg_id INTEGER').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE reports ADD COLUMN msg_text TEXT').run(); } catch (e) { /* already there */ }
   schemaReady = true;

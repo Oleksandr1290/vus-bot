@@ -75,6 +75,11 @@ async function windowCounts(env, from, to) {
     aiDeleted: await ev('ai_delete'),
     aiReview: await ev('ai_review'),
     ideas: await ev('idea'),
+    siteViews: await ev('site_view'),
+    adViews: await ev('ad_view'),
+    contactClicks: await ev('contact_click'),
+    siteAds: await ev('site_ad'),
+    siteLogins: await ev('site_login'),
     donations: await ev('donation'),
     alertsSent: await one("SELECT COALESCE(SUM(CAST(ref AS INTEGER)), 0) AS n FROM events WHERE type = 'alerts_sent' AND created_at >= ? AND created_at < ?", from, to),
     nights: await one("SELECT COUNT(*) AS n FROM admin_log WHERE action = 'night_close' AND created_at >= ? AND created_at < ?", from, to),
@@ -159,6 +164,11 @@ async function statsText(env, period) {
   L.push(`🟢 Активні ${P.secs ? P.label : 'за 30 днів'}: ${active} з ${botTotal}`);
   L.push(`💡 Ідей: ${c.ideas}${d('ideas')} · 🔔 сповіщень надіслано: ${c.alertsSent}` + (c.donations ? ` · ☕ донатів: ${c.donations}` : ''));
   if (langs.length) L.push('🌐 Мови: ' + langs.map((r) => `${LANG_UA[r.lang] || r.lang} ${r.n}`).join(', '));
+
+  L.push('<b>🌐 Сайт</b>');
+  L.push(`👀 Відвідувань: ${c.siteViews}${d('siteViews')}`);
+  L.push(`👁 Переглядів оголошень: ${c.adViews}${d('adViews')} · 📞 відкрили контакт: ${c.contactClicks}${d('contactClicks')}`);
+  L.push(`📝 Оголошень із сайту: ${c.siteAds}${d('siteAds')} · 🔑 входів: ${c.siteLogins}`);
 
   L.push('<b>🛡 Безпека</b>');
   L.push(`✅ Заявки в групу схвалено: ${c.jrOk}${d('jrOk')}`);
