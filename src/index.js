@@ -6,6 +6,7 @@ import {
   isOwner, isStaffId, logAction, logEvent,
   menuFor, navRow, pairs, send, sendHtml, showMenu, removeButtons, answer, whoName,
   sendPost, removeFromChannel, publishAd, postLink, adminCard, modButtons, sendAdminCard, channelKeyboard,
+  adNo, normTags, tagList, tagsLine, checkChannelAds,
 } from './common.js';
 import { menuKeyOf, LANGS } from './i18n.js';
 import { COUNTRIES, CATEGORIES, countryByCode, categoryByKey, parsePrice } from './data.js';
@@ -79,6 +80,7 @@ export default {
     const minute = new Date(event.scheduledTime || Date.now()).getUTCMinutes();
     ctx.waitUntil(ensureSchema(env).then(async () => {
       await cronNight(env);
+      try { await checkChannelAds(env, 10); } catch (e) { console.log('checkChannelAds', e.message); }
       if (minute < 5) await runCron(env);
       else await cronWeekly(env);
     }));
@@ -160,6 +162,9 @@ async function onPrivateMessage(msg, env) {
     return showMenu(env, user);
   }
 
+  // Ad lookup by full number: #00000012
+  if (/^#\d{8}$/.test(text)) return showAdByNumber(env, user, Number(text.slice(1)));
+
   // A menu button always wins, even in the middle of a form.
   const menuKey = menuKeyOf(text);
   if (menuKey) {
@@ -177,6 +182,20 @@ async function onPrivateMessage(msg, env) {
   if (st.startsWith('adm:') && user.isStaff) return onStaffInput(env, user, session, msg);
 
   return showMenu(env, user);
+}
+
+async function showAdByNumber(env, user, id) {
+  const ad = await getAd(env, id);
+  const L = user.lang || 'ua';
+  const visible = ad && (ad.status === 'published' || user.isOwner || ad.user_id === user.id);
+  if (!visible) return send(env, user.id, t(L, 'ad_not_found_no', { id }));
+  await sendPost(env, user.id, ad, null);
+  const rows = [];
+  if (ad.status === 'published' && ad.channel_msg_ids !== '[]') rows.push([{ text: '📢 Telegram', url: postLink(env, JSON.parse(ad.channel_msg_ids)[0]) }]);
+  if (env.SITE_URL && ad.status === 'published' && ad.on_site) rows.push([{ text: '🌐 Сайт', url: `${env.SITE_URL}/ad/${ad.id}` }]);
+  if (user.isOwner && env.SITE_URL) rows.push([{ text: '🛠 Керувати в адмін-панелі', url: `${env.SITE_URL}/admin?ad=${ad.id}` }]);
+  const status = user.isOwner || ad.user_id === user.id ? `\n${t(L, `status_${ad.status}`)} · 👁 ${ad.views || 0} · 📞 ${ad.contact_clicks || 0}` : '';
+  return send(env, user.id, `🔢 #${adNo(ad.id)}${status}`, rows.length ? { reply_markup: { inline_keyboard: rows } } : {});
 }
 
 async function onMenu(env, user, key) {
@@ -330,6 +349,8 @@ async function promptStep(env, user, step, data) {
     }
     case 'contact':
       return send(env, user.id, t(L, 'ask_contact'), { reply_markup: contactKeyboard(L, user, data) });
+    case 'tags':
+      return send(env, user.id, t(L, 'ask_tags'), { parse_mode: 'HTML', ...kb([[{ text: t(L, 'tags_skip'), callback_data: 'ad:tg:skip' }]]) });
     case 'site':
       return send(env, user.id, t(L, 'ask_site'), kb([[
         { text: t(L, 'site_yes'), callback_data: 'ad:site:1' },
@@ -358,6 +379,7 @@ function draftToAd(user, d) {
     photos: JSON.stringify(d.photos || []),
     contact: free ? '' : composeContact(user, d),
     on_site: d.onSite ? 1 : 0,
+    tags: d.tags || '',
   };
 }
 
@@ -423,6 +445,13 @@ async function onAdInput(env, user, session, msg) {
     }
     case 'free':
       return onFreeInput(env, user, session, msg);
+    case 'tags': {
+      const tags = normTags(text);
+      if (!tags.length) return send(env, user.id, t(L, 'err_tags'));
+      data.tags = tags.join(',');
+      await send(env, user.id, t(L, 'tags_saved', { tags: tags.map((x) => '#' + x).join(' ') }));
+      return goStep(env, user, 'site', data);
+    }
     default:
       return promptStep(env, user, step, data);
   }
@@ -462,7 +491,7 @@ async function onFreeInput(env, user, session, msg) {
     }
     if (caption) {
       const s = await getSession(env, user.id);
-      return goStep(env, user, 'site', s.data);
+      return goStep(env, user, 'tags', s.data);
     }
     return send(env, user.id, t(L, 'free_need_text'), { reply_markup: { inline_keyboard: [navRow(L)] } });
   }
@@ -470,10 +499,10 @@ async function onFreeInput(env, user, session, msg) {
   if (!caption) return send(env, user.id, t(L, 'err_text'));
   const s = await getSession(env, user.id);
   s.data.freeText = caption;
-  return goStep(env, user, 'site', s.data);
+  return goStep(env, user, 'tags', s.data);
 }
 
-const BUTTON_STATE = { m: 'mode', c: 'country', ci: 'city', cat: 'cat', pr: 'price', ph: 'photos', ct: 'contact', fr: 'free', site: 'site', sub: 'preview', redo: 'preview' };
+const BUTTON_STATE = { m: 'mode', c: 'country', ci: 'city', cat: 'cat', pr: 'price', ph: 'photos', ct: 'contact', fr: 'free', tg: 'tags', site: 'site', sub: 'preview', redo: 'preview' };
 
 async function onAdButton(env, user, cq, parts) {
   const L = user.lang;
@@ -532,8 +561,9 @@ async function onAdButton(env, user, cq, parts) {
         });
       }
       data.contact = composeContact(user, data);
-      return goStep(env, user, 'site', data);
-    case 'fr': return goStep(env, user, 'site', data);
+      return goStep(env, user, 'tags', data);
+    case 'fr': return goStep(env, user, 'tags', data);
+    case 'tg': data.tags = ''; return goStep(env, user, 'site', data);
     case 'site': data.onSite = parts[2] === '1'; return goStep(env, user, 'preview', data);
     case 'redo': return goStep(env, user, 'mode', {});
     case 'sub': return submitAd(env, user, data);
@@ -549,9 +579,9 @@ async function submitAd(env, user, data) {
   }
   const d = draftToAd(user, data);
   const res = await env.DB.prepare(
-    `INSERT INTO ads (user_id, kind, country, city, category, title, body, price, photos, contact, on_site, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-  ).bind(user.id, d.kind, d.country, d.city, d.category, d.title, d.body, d.price, d.photos, d.contact, d.on_site, now()).run();
+    `INSERT INTO ads (user_id, kind, country, city, category, title, body, price, photos, contact, on_site, tags, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).bind(user.id, d.kind, d.country, d.city, d.category, d.title, d.body, d.price, d.photos, d.contact, d.on_site, d.tags || null, now()).run();
   const id = res.meta.last_row_id;
   await clearSession(env, user.id);
   const ad = await getAd(env, id);
@@ -559,7 +589,7 @@ async function submitAd(env, user, data) {
   // Оголошення власника публікуються одразу, без модерації.
   if (user.isOwner) {
     const r = await publishAd(env, ad, user.id);
-    if (!r.ok) return send(env, user.id, `⚠️ Не вдалося опублікувати #${id}: ${r.error}`, { reply_markup: menuFor(env, user) });
+    if (!r.ok) return send(env, user.id, `⚠️ Не вдалося опублікувати #${adNo(id)}: ${r.error}`, { reply_markup: menuFor(env, user) });
     await notifyAlerts(env, ad, r.ids);
     return send(env, user.id, t(user.lang, 'published_user', { id, link: postLink(env, r.ids[0]) }) + siteLine(env, ad), { reply_markup: menuFor(env, user) });
   }
@@ -611,7 +641,7 @@ async function onModeration(env, cq, parts) {
       text: adminCard(env, ad, author, status),
     });
     await syncAdminCopy(env, ad, author, msg, status);
-    await logAction(env, cq.from.id, 'publish_ad', ad.user_id, `#${ad.id}`);
+    await logAction(env, cq.from.id, 'publish_ad', ad.user_id, `#${adNo(ad.id)}`);
     if (author) await send(env, author.id, t(author.lang, 'published_user', { id: ad.id, link: postLink(env, r.ids[0]) }) + siteLine(env, ad));
     return answer(env, cq, 'Опубліковано');
   }
@@ -627,7 +657,7 @@ async function onModeration(env, cq, parts) {
       text: adminCard(env, ad, author, status),
     });
     await syncAdminCopy(env, ad, author, msg, status);
-    await logAction(env, cq.from.id, 'reject_ad', ad.user_id, `#${ad.id}`);
+    await logAction(env, cq.from.id, 'reject_ad', ad.user_id, `#${adNo(ad.id)}`);
     if (author) await send(env, author.id, t(author.lang, 'rejected_user', { id: ad.id, reason: t(author.lang, `reason_${code}`) }));
     return answer(env, cq, 'Відхилено');
   }
@@ -647,9 +677,10 @@ async function syncAdminCopy(env, ad, author, msg, status) {
 // ───────────────────────────── my ads ─────────────────────────────
 
 function myAdText(L, ad) {
-  let s = `<b>#${ad.id} · ${esc(ad.title)}</b>\n${t(L, `status_${ad.status}`)}`;
+  let s = `<b>#${adNo(ad.id)} · ${esc(ad.title)}</b>\n${t(L, `status_${ad.status}`)}`;
   if (ad.status === 'published') s += `\n${t(L, 'until', { d: fmtDate(ad.expires_at) })}`;
   if (ad.status === 'published' || ad.status === 'expired') s += `\n👁 ${ad.views || 0} · 📞 ${ad.contact_clicks || 0}`;
+  if (tagList(ad).length) s += `\n🏷 ${esc(tagsLine(ad))}`;
   if (ad.status === 'published' && ad.on_site && env_SITE) s += `\n🌐 ${env_SITE}/ad/${ad.id}`;
   return s;
 }

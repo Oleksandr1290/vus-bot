@@ -2,8 +2,9 @@
 
 import {
   tg, now, DAY, t, getUser, upsertUser, logEvent, logAction, getAd, publishAd, sendAdminCard, postLink,
-  removeFromChannel, send, isOwner,
+  removeFromChannel, send, isOwner, normTags,
 } from '../common.js';
+import { handleAdmin } from './admin.js';
 import { parsePrice, categoryByKey, COUNTRIES } from '../data.js';
 import { membership, notifyAlerts, createIdea, donationsOn } from '../community.js';
 import { createReport } from '../staff.js';
@@ -30,7 +31,8 @@ async function meInfo(env, u) {
   const m = u.isStaff ? { ch: true, gr: true } : await membership(env, u.id);
   const lim = await limitsFor(env, u);
   return {
-    ok: true, user: { id: u.id, name: u.first_name || u.username || 'Учасник', nick: u.username || null, lang: u.lang || null, staff: !!u.isStaff },
+    ok: true, user: { id: u.id, name: u.first_name || u.username || 'Учасник', nick: u.username || null, lang: u.lang || null, staff: !!u.isStaff,
+      owner: !!u.isOwner, photo: u.photo_url || null },
     member: m, limits: { perDay: lim.perDay, left: lim.left, active: lim.active, activeNow: lim.activeNow, nextAt: lim.nextAt },
   };
 }
@@ -115,9 +117,10 @@ async function submitFromSite(env, request, u) {
   if (old && !photos.length) photos.push(...JSON.parse(old.photos || '[]'));
 
   const res = await env.DB.prepare(
-    `INSERT INTO ads (user_id, kind, country, city, category, title, body, price, photos, contact, on_site, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-  ).bind(u.id, mode, country.ua, city, cat.key, title, body, price, JSON.stringify(photos), contact, f('site') === '0' ? 0 : 1, now()).run();
+    `INSERT INTO ads (user_id, kind, country, city, category, title, body, price, photos, contact, on_site, tags, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).bind(u.id, mode, country.ua, city, cat.key, title, body, price, JSON.stringify(photos), contact, f('site') === '0' ? 0 : 1,
+    normTags(f('tags')).join(',') || null, now()).run();
   const id = res.meta.last_row_id;
   await logEvent(env, 'site_ad', u.id, id);
 
@@ -152,7 +155,7 @@ async function myData(env, u) {
     ads: results.map((a) => ({
       ...publicAd({ ...a, published_at: a.published_at || a.created_at }), status: a.status, reason: a.reject_reason || null,
       clicks: a.contact_clicks || 0, contact: a.contact, daysLeft: a.expires_at ? Math.max(0, Math.ceil((a.expires_at - now()) / DAY)) : null,
-      raw: { title: a.title, body: a.body, price: a.price, kind: a.kind },
+      raw: { title: a.title, body: a.body, price: a.price, kind: a.kind, tags: a.tags || '' },
     })),
     level: { n: lim.lv.n, perDay: lim.perDay, active: lim.active, days: lim.lv.days, star: lim.lv.star, priority: lim.lv.priority, bump: lim.lv.bump,
       next: next ? { need: next.need, level: next.level } : null },
@@ -166,10 +169,19 @@ export async function handleApi(env, request, path) {
   const u = await currentUser(env, request);
   const body = async () => { try { return await request.json(); } catch (e) { return {}; } };
 
+  if (path.startsWith('/api/admin/')) {
+    if (!u || !u.isOwner) return fail('forbidden', 403);
+    return handleAdmin(env, request, path, u, json, fail);
+  }
+
   if (path === '/api/login' && method === 'POST') {
     const tgUser = await verifyTelegramLogin(env, await body());
     if (!tgUser) return fail('login', 401);
     const user = await upsertUser(env, { id: tgUser.id, first_name: tgUser.first_name, username: tgUser.username }, { detect: true });
+    const photo = /^https:\/\/[^\s"']+$/.test(tgUser.photo_url || '') ? tgUser.photo_url : null;
+    await env.DB.prepare('UPDATE users SET photo_url = ? WHERE id = ?').bind(photo, user.id).run();
+    user.photo_url = photo;
+    user.isOwner = isOwner(env, user.id);
     await logEvent(env, 'site_login', user.id);
     return json(await meInfo(env, user), 200, { 'set-cookie': await makeSessionCookie(env, user.id) });
   }

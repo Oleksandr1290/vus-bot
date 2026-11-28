@@ -4,8 +4,9 @@
 var D = JSON.parse(document.getElementById('vus-data').textContent);
 var T = window.VUS_T;
 var $ = function (id) { return document.getElementById(id); };
-var state = { lang: D.lang, cat: 'all', country: 'all', city: null, q: '', sort: 'new', me: null, member: null, limits: null, step: 0,
+var state = { lang: D.lang, cat: 'all', country: 'all', city: null, q: '', tag: null, sort: 'new', me: null, member: null, limits: null, step: 0,
   mode: 'form', contacts: { tg: true, ph: false }, pcat: 'sell', pcc: 'RO', edit: null, cabTab: 'ads', my: null, ideaKind: 0 };
+try { var tp = new URLSearchParams(location.search).get('tag'); if (tp) state.tag = tp; } catch (e) {}
 if (D.preset) { state.cat = D.preset.cat || 'all'; state.country = D.preset.country || 'all'; state.city = D.preset.city || null; }
 var mycity = null;
 try { mycity = localStorage.getItem('vus_city'); } catch (e) {}
@@ -53,11 +54,13 @@ function card(ad) {
   if (ad.hasContact) { tabs = '<div class="tabs">'; for (var i = 0; i < 5; i++) tabs += '<button type="button" aria-label="' + tr('tab') + '">' + tr('tab_s') + '</button>'; tabs += '</div>'; }
   var thumb = ad.photos.length ? '<div class="thumb" style="background:' + (CAT_LOOK[ad.cat] || '#E8EBE6') + '"><img src="' + ad.photos[0] + '" alt="" loading="lazy"><small>📷 ' + ad.photos.length + '</small></div>' : '';
   var line = (ad.text.split('\n').filter(function (x) { return x.trim(); })[0] || '').slice(0, 220);
-  return '<article class="ad' + (ad.star ? ' star' : '') + '" data-id="' + ad.id + '">' + thumb +
+  var tags = ad.tags && ad.tags.length ? '<p class="tags">' + ad.tags.map(function (x) { return '<a href="/?tag=' + encodeURIComponent(x) + '" data-tag="' + esc(x) + '">#' + esc(x) + '</a>'; }).join('') + '</p>' : '';
+  var del = state.me && state.me.owner ? '<button type="button" class="own-del" data-owndel="' + ad.id + '" title="' + tr('del_q_owner') + '">🗑</button>' : '';
+  return '<article class="ad' + (ad.star ? ' star' : '') + '" data-id="' + ad.id + '"><span class="no">' + ad.no + '</span>' + del + thumb +
     '<p class="where"><b>' + esc(ad.city) + '</b>' + (mycity === ad.city ? ' · ' + tr('near') : '') + ', ' + esc(countryName(ad.country)) + ' · ' + esc(catName(ad.cat)) + '</p>' +
     '<h4>' + (ad.h < 24 ? '<span class="new">' + tr('newb') + '</span>' : '') + '<a href="/ad/' + ad.id + '">' + esc(ad.title) + '</a></h4>' +
     (ad.price ? '<p class="price">' + esc(ad.price) + approx(ad) + '</p>' : '') +
-    '<p class="text">' + esc(line) + '</p>' +
+    '<p class="text">' + esc(line) + '</p>' + tags +
     '<div class="meta"><span>' + ago(ad.h) + ' · <span class="views">👁 ' + ad.views + '</span></span>' + (ad.star ? '<span class="badge">' + tr('star') + '</span>' : '') + '</div>' +
     (ad.hasContact ? '<p class="contact" aria-live="polite"></p>' : '') + tabs + '</article>';
 }
@@ -66,12 +69,15 @@ function filtered() {
   var q = state.q.trim().toLowerCase();
   var list = (D.ads || []).filter(function (a) {
     return (state.cat === 'all' || a.cat === state.cat) && (state.country === 'all' || a.country === state.country) &&
-      (!state.city || a.city === state.city) && (!q || (a.title + ' ' + a.text + ' ' + a.city).toLowerCase().indexOf(q) >= 0);
+      (!state.city || a.city === state.city) && (!state.tag || (a.tags || []).some(function (x) { return x.toLowerCase() === state.tag.toLowerCase(); })) &&
+      (!q || (a.title + ' ' + a.text + ' ' + a.city + ' ' + (a.tags || []).join(' ').replace(/_/g, ' ')).toLowerCase().indexOf(q) >= 0);
   });
+  if (q) list.forEach(function (a) { a._tagHit = (a.tags || []).some(function (x) { return x.replace(/_/g, ' ').toLowerCase().indexOf(q) >= 0; }) ? 1 : 0; });
   if (state.sort === 'cheap') list.sort(function (a, b) { return (a.p || 1e12) - (b.p || 1e12); });
   else if (state.sort === 'dear') list.sort(function (a, b) { return b.p - a.p; });
   else list.sort(function (a, b) { return (b.ts + Math.min(b.boost, 30) * 3600) - (a.ts + Math.min(a.boost, 30) * 3600); });
   if (mycity) list.sort(function (a, b) { return (b.city === mycity) - (a.city === mycity); });
+  if (q) list.sort(function (a, b) { return (b._tagHit || 0) - (a._tagHit || 0); });
   return list;
 }
 
@@ -86,7 +92,7 @@ function renderAuth() {
   var a = $('auth');
   if (!a) return;
   a.innerHTML = state.me
-    ? '<button class="me" type="button" data-cab><i>' + esc((state.me.name || '?')[0]) + '</i><span class="hide-s">' + esc(state.me.name) + '</span></button>'
+    ? '<button class="me" type="button" data-cab><i>' + (state.me.photo ? '<img src="' + esc(state.me.photo) + '" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(\'' + esc((state.me.name || '?')[0]).replace(/'/g, '') + '\')">' : esc((state.me.name || '?')[0])) + '</i><span class="hide-s">' + esc(state.me.name) + '</span></button>'
     : '<button class="tg-login" type="button" data-login>' + TG_ICON + '<span>' + tr('login') + '</span></button>';
 }
 
@@ -110,7 +116,7 @@ function renderHome() {
   var stars = items.filter(function (a) { return a.star; }).sort(function () { return Math.random() - 0.5; }).slice(0, 3);
   $('featured-box').hidden = stars.length < 2;
   $('featured').innerHTML = stars.map(card).join('');
-  $('count').textContent = pl(items.length, 'found');
+  $('count').innerHTML = esc(pl(items.length, 'found')) + (state.tag ? ' <span class="tag-on">' + tr('tag_on') + ' <b>#' + esc(state.tag) + '</b><button class="ghost" type="button" data-tagclear>' + tr('tag_clear') + '</button></span>' : '');
   $('weekline').textContent = tr('week', { a: D.week ? D.week.ads : 0, b: D.week ? D.week.users : 0 });
   $('feed').innerHTML = items.length ? items.map(card).join('') :
     '<div class="zero"><p class="big">' + tr('zero_t') + '</p><p>' + tr('zero_p') + '</p><div class="row"><button class="btn" type="button" data-open-post>' + tr('post') + '</button><button class="ghost" type="button" data-notify>🔔 ' + tr('zero_notify') + '</button></div></div>';
@@ -156,7 +162,7 @@ window.onTelegramAuth = function (user) {
     if ($('dlg-cab').open) openCab();
   });
 };
-function setMe(r) { state.me = r.user; state.member = r.member; state.limits = r.limits; renderAuth(); }
+function setMe(r) { state.me = r.user; state.member = r.member; state.limits = r.limits; renderAuth(); if (D.page === 'home' && state.me.owner) renderHome(); if (D.page === 'ad' && state.me.owner && $('own-del-ad')) { $('own-del-ad').hidden = false; $('own-adm-ad').hidden = false; } }
 function loginWidget(container) {
   container.innerHTML = '';
   var s = document.createElement('script');
@@ -233,6 +239,7 @@ function drawPost() {
       '<label>' + tr('f_country') + '<select name="cc" id="f-cc">' + ctry + '</select></label>' +
       '<label>' + tr('f_city') + '<select id="f-city">' + cities + '</select><input type="text" id="f-city-other" placeholder="' + tr('f_city_ph') + '" value="' + esc(!known ? cityVal : '') + '"' + (known ? ' hidden' : '') + '></label>' +
       '<label class="full">' + tr('f_cat') + '<select name="cat" id="f-cat">' + cats + '</select></label>' + fields +
+      '<label class="full">' + tr('f_tags') + '<input type="text" name="tags" maxlength="300" placeholder="' + tr('f_tags_ph') + '" value="' + esc(e && e.raw.tags ? e.raw.tags.split(',').map(function (x) { return x.replace(/_/g, ' '); }).join(', ') : '') + '"></label>' +
       '<label class="full">' + tr('f_photos') + '<input type="file" name="photos" id="f-photos" accept="image/*" multiple style="display:none"><span class="drop" id="f-drop">📷 ' + tr('f_drop') + '</span><span class="previews" id="f-prev"></span></label>' +
       '<label class="full tick"><input type="checkbox" name="site" value="1" checked> ' + tr('f_site') + '</label>' +
       '</form><p id="f-err" class="sub" style="color:#B3261E;margin:14px 0 0" hidden></p>' +
@@ -325,7 +332,7 @@ function openCab() {
       }).join('') : '<p class="sub">' + tr('al_empty') + '</p>';
     }
     $('cab-sheet').innerHTML = closeBtn() + '<h2>' + tr('cabinet') + '</h2><p class="sub">' + tr('hello') + ' ' + esc(state.me.name) + (state.me.nick ? ' · @' + esc(state.me.nick) : '') + '</p>' +
-      '<div class="cab-tabs" role="group">' + tabs + '</div>' + body + '<div class="actions"><span></span><button class="ghost" type="button" id="logout">' + tr('logout') + '</button></div>';
+      '<div class="cab-tabs" role="group">' + tabs + '</div>' + body + '<div class="actions">' + (state.me.owner ? '<a class="btn" href="/admin">' + tr('admin') + '</a>' : '<span></span>') + '<button class="ghost" type="button" id="logout">' + tr('logout') + '</button></div>';
     if ($('copy-link')) $('copy-link').onclick = function () { try { navigator.clipboard.writeText($('ref-link').value); } catch (e) {} toast(tr('copied')); };
     $('logout').onclick = function () { api('/api/logout', { body: {} }).then(function () { state.me = null; state.my = null; $('dlg-cab').close(); renderAuth(); }); };
   };
@@ -411,6 +418,19 @@ document.addEventListener('click', function (e) {
   if (t.closest('[data-thanks]')) { e.preventDefault(); openThanks(); return; }
   var ik = t.closest('[data-ik]');
   if (ik) { state.ideaKind = Number(ik.getAttribute('data-ik')); var v = $('idea-text').value; openIdea(); $('idea-text').value = v; return; }
+  var tgl = t.closest('[data-tag]');
+  if (tgl && D.page === 'home') { e.preventDefault(); state.tag = tgl.getAttribute('data-tag'); renderHome(); $('feed-title').scrollIntoView({ behavior: 'smooth' }); return; }
+  if (t.closest('[data-tagclear]')) { state.tag = null; try { history.replaceState(null, '', location.pathname); } catch (er) {} renderHome(); return; }
+  var od = t.closest('[data-owndel]');
+  if (od) {
+    var oid = Number(od.getAttribute('data-owndel'));
+    if (!confirm(tr('del_q_owner'))) return;
+    api('/api/admin/ad/' + oid + '/delete', { body: {} }).then(function (r) {
+      toast(r && r.ok ? r.msg : tr('err'));
+      if (r && r.ok) { D.ads = D.ads.filter(function (a) { return a.id !== oid; }); renderHome(); }
+    });
+    return;
+  }
   var c = t.closest('[data-cat]');
   if (c) { state.cat = c.getAttribute('data-cat'); renderHome(); return; }
   var cn = t.closest('[data-country]');
@@ -426,7 +446,10 @@ document.addEventListener('click', function (e) {
 });
 [].forEach.call(document.querySelectorAll('dialog'), function (d) { d.addEventListener('click', function (e) { if (e.target === d) d.close(); }); });
 if ($('search')) $('search').addEventListener('submit', function (e) {
-  e.preventDefault(); state.q = $('q').value; state.country = $('where').value; state.city = null; renderHome();
+  e.preventDefault();
+  var qv = $('q').value.trim();
+  if (/^#\d{8}$/.test(qv)) { location.href = '/ad/' + Number(qv.slice(1)); return; }
+  state.q = qv; state.country = $('where').value; state.city = null; renderHome();
   $('feed-title').scrollIntoView({ behavior: 'smooth' });
 });
 if ($('sort')) $('sort').onchange = function (e) { state.sort = e.target.value; renderHome(); };
@@ -446,7 +469,124 @@ if (D.page === 'ad' && D.ad) {
     else { try { navigator.clipboard.writeText(url); } catch (e) {} toast(tr('copied')); }
   };
   if ($('report')) $('report').onclick = function () { openReport(D.ad.id); };
+  if ($('copy-no')) $('copy-no').onclick = function () { try { navigator.clipboard.writeText(D.ad.no); } catch (e) {} toast(tr('no_copied')); };
+  if ($('own-del-ad')) $('own-del-ad').onclick = function () {
+    if (!confirm(tr('del_q_owner'))) return;
+    api('/api/admin/ad/' + D.ad.id + '/delete', { body: {} }).then(function (r) { toast(r && r.ok ? r.msg : tr('err')); if (r && r.ok) setTimeout(function () { location.href = '/'; }, 900); });
+  };
 }
+
+// ── owner admin panel (/admin) ──
+if (D.page === 'admin') (function () {
+  var tab = D.adId ? 'find' : 'queue', reasons = [];
+  var body = $('adm-body');
+  var fmtTs = function (ts) { if (!ts) return '—'; var d = new Date(ts * 1000); return d.toLocaleDateString('uk-UA') + ' ' + d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }); };
+  var who = function (a) { return a ? esc(a.name || '') + (a.nick ? ' @' + esc(a.nick) : '') + ' · ID ' + a.id + (a.banned ? ' · ⛔ бан' : '') : '—'; };
+  var stLabel = { pending: '⏳ На модерації', published: '✅ Опубліковано', rejected: '❌ Відхилено', expired: '⌛ Термін минув', deleted: '🗑 Видалено' };
+  function adCard(a, acts) {
+    return '<div class="adm-card" data-adm-ad="' + a.id + '"><p class="sm"><b>' + a.no + '</b> · ' + (stLabel[a.status] || a.status) + ' · ' + esc(catFull(a.cat)) + ' · ' + esc(a.city) + ', ' + esc(countryName(a.country)) + '</p>' +
+      '<h4>' + esc(a.title) + '</h4>' + (a.price ? '<p class="sm">💰 ' + esc(a.price) + '</p>' : '') +
+      (a.photos.length ? '<div class="imgs">' + a.photos.map(function (p) { return '<a href="' + p + '" target="_blank" rel="noopener"><img src="' + p + '" alt=""></a>'; }).join('') + '</div>' : '') +
+      '<pre>' + esc(a.text) + '</pre>' +
+      (a.tags.length ? '<p class="tags">' + a.tags.map(function (x) { return '<a href="/?tag=' + encodeURIComponent(x) + '">#' + esc(x) + '</a>'; }).join('') + '</p>' : '') +
+      (a.contact ? '<p class="sm">📞 ' + esc(a.contact) + '</p>' : '') +
+      '<p class="sm">👤 ' + who(a.author) + '</p>' +
+      '<p class="sm">🕒 подано ' + fmtTs(a.created) + (a.expires ? ' · до ' + fmtTs(a.expires) : '') + ' · 👁 ' + a.views + ' · 📞 ' + a.clicks + (a.openReports ? ' · ⚠️ скарг: ' + a.openReports : '') + (a.onSite ? '' : ' · не на сайті') + '</p>' +
+      (a.reason ? '<p class="sm">Причина відмови: ' + esc(a.reason) + '</p>' : '') +
+      '<div class="adm-acts">' + acts(a) + '</div></div>';
+  }
+  var b = function (act, id, label, cls) { return '<button type="button" class="' + (cls || 'ghost') + '" data-adm="' + act + ':' + id + '">' + label + '</button>'; };
+  function fullActs(a) {
+    var out = '';
+    if (a.status === 'pending') out += queueActs(a);
+    if (a.status === 'published') out += (a.onSite ? '<a class="ghost" href="/ad/' + a.id + '" target="_blank">🌐 На сайті</a>' : '') + (a.channel ? '<a class="ghost" href="' + a.channel + '" target="_blank" rel="noopener">📢 У каналі</a>' : '') +
+      b('extend', a.id, '🔄 Продовжити') + b('bump', a.id, '⬆️ Підняти') + b('star', a.id, a.star ? '⭐ Зняти зірку' : '⭐ Дати зірку');
+    if (a.status !== 'deleted') out += b('delete', a.id, '🗑 Видалити');
+    if (a.author && !a.author.banned && !(state.me && a.author.id === state.me.id)) out += b('ban', a.id, '⛔ Бан автора + видалити всі його оголошення');
+    return out;
+  }
+  function queueActs(a) {
+    return b('approve', a.id, '✅ Опублікувати', 'btn') + '<select data-reason="' + a.id + '">' + reasons.map(function (r) { return '<option value="' + r.key + '">' + esc(r.label) + '</option>'; }).join('') + '</select>' + b('reject', a.id, '❌ Відхилити');
+  }
+  function setTab(t) {
+    tab = t;
+    [].forEach.call(document.querySelectorAll('[data-admtab]'), function (x) { x.setAttribute('aria-pressed', x.getAttribute('data-admtab') === t); });
+    draw();
+  }
+  function counts() {
+    api('/api/admin/stats').then(function (r) { if (!r || !r.ok) return; $('adm-n-queue').textContent = r.stats.pending || ''; $('adm-n-reports').textContent = r.stats.reports || ''; });
+  }
+  function draw() {
+    body.innerHTML = '<p class="sub">Завантаження…</p>';
+    if (tab === 'queue') api('/api/admin/queue').then(function (r) {
+      if (!r || !r.ok) return denied();
+      reasons = r.reasons;
+      body.innerHTML = r.ads.length ? r.ads.map(function (a) { return adCard(a, queueActs); }).join('') : '<p class="sub">✨ Черга порожня: нових оголошень на перевірці немає.</p>';
+    });
+    if (tab === 'reports') api('/api/admin/reports').then(function (r) {
+      if (!r || !r.ok) return denied();
+      body.innerHTML = r.reports.length ? r.reports.map(function (x) {
+        return '<div class="adm-card"><p class="sm"><b>Скарга #' + x.id + '</b> · ' + esc(x.reason) + ' · скарг: ' + x.count + ' · ' + fmtTs(x.created) + '</p>' +
+          (x.ad ? '<h4><a href="#" data-admopen="' + x.ad.id + '">' + x.ad.no + '</a> ' + esc(x.ad.title) + ' <span class="sm">(' + (stLabel[x.ad.status] || x.ad.status) + ')</span></h4>' : '') +
+          (x.target ? '<p class="sm">На кого: ' + who(x.target) + '</p>' : '') + (x.note ? '<pre>' + esc(x.note) + '</pre>' : '') + (x.msgText ? '<pre>' + esc(x.msgText) + '</pre>' : '') +
+          (x.msgLink ? '<p class="sm"><a href="' + esc(x.msgLink) + '" target="_blank" rel="noopener">Повідомлення в чаті</a></p>' : '') +
+          '<div class="adm-acts">' + b('rdismiss', x.id, '✅ Відхилити скаргу') + (x.ad && x.ad.status !== 'deleted' ? b('rdelad', x.id, '🗑 Видалити оголошення') : '') + (x.target ? b('rban', x.id, '⛔ Бан + видалити оголошення') : '') + '</div></div>';
+      }).join('') : '<p class="sub">✨ Відкритих скарг немає.</p>';
+    });
+    if (tab === 'find') {
+      body.innerHTML = '<form class="adm-find" id="adm-find"><input id="adm-no" placeholder="#00000001" autocomplete="off" inputmode="text"><button class="btn" type="submit">Знайти</button></form><div id="adm-found"></div>';
+      $('adm-find').onsubmit = function (e) {
+        e.preventDefault();
+        var v = $('adm-no').value.trim();
+        if (!/^#\d{8}$/.test(v)) { $('adm-found').innerHTML = '<p class="sub">Введіть повний номер з решіткою, наприклад #00000012.</p>'; return; }
+        openAd(Number(v.slice(1)));
+      };
+      if (D.adId) { $('adm-no').value = '#' + String(D.adId).padStart(8, '0'); openAd(D.adId); D.adId = null; }
+    }
+    if (tab === 'stats') api('/api/admin/stats').then(function (r) {
+      if (!r || !r.ok) return denied();
+      var s = r.stats, w = s.week;
+      var box = function (n, l) { return '<div><b>' + (n == null ? '—' : n) + '</b><span>' + l + '</span></div>'; };
+      body.innerHTML = '<div class="adm-stats">' + box(s.channel, 'підписників каналу') + box(s.group, 'учасників групи') + box(s.users, 'користувачів бота') +
+        box(s.active, 'активних оголошень') + box(s.pending, 'на модерації') + box(s.reports, 'відкритих скарг') + '</div><h3 style="margin:22px 0 10px">За 7 днів</h3><div class="adm-stats">' +
+        box(w.ads, 'подано оголошень') + box(w.published, 'опубліковано') + box(w.rejected, 'відхилено') + box(w.newUsers, 'нових користувачів') +
+        box(w.siteViews, 'відвідувань сайту') + box(w.adViews, 'переглядів оголошень') + box(w.contacts, 'відкрили контакт') + box(w.siteAds, 'оголошень із сайту') + box(w.logins, 'входів на сайт') + '</div>';
+    });
+  }
+  function openAd(id) {
+    var box = $('adm-found') || body;
+    box.innerHTML = '<p class="sub">Шукаю…</p>';
+    api('/api/admin/ad/' + id).then(function (r) {
+      if (r && r.error === 'forbidden') return denied();
+      box.innerHTML = r && r.ok ? adCard(r.ad, fullActs) : '<p class="sub">Оголошення #' + String(id).padStart(8, '0') + ' не знайдено.</p>';
+    });
+  }
+  function denied() { body.innerHTML = '<p class="sub">Немає доступу. Увійдіть через Telegram з акаунта власника.</p>'; }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var tb = t.closest('[data-admtab]');
+    if (tb) { setTab(tb.getAttribute('data-admtab')); return; }
+    var op = t.closest('[data-admopen]');
+    if (op) { e.preventDefault(); setTab('find'); $('adm-no').value = '#' + String(op.getAttribute('data-admopen')).padStart(8, '0'); openAd(Number(op.getAttribute('data-admopen'))); return; }
+    var a = t.closest('[data-adm]');
+    if (!a) return;
+    var p = a.getAttribute('data-adm').split(':'), act = p[0], id = p[1], url, payload = {};
+    if (act === 'delete' && !confirm('Видалити оголошення з каналу і сайту?')) return;
+    if ((act === 'ban' || act === 'rban') && !confirm('Заблокувати автора назавжди і видалити всі його оголошення?')) return;
+    if (act.charAt(0) === 'r' && act !== 'reject') url = '/api/admin/report/' + id + '/' + act.slice(1);
+    else url = '/api/admin/ad/' + id + '/' + act;
+    if (act === 'reject') { var sel = document.querySelector('[data-reason="' + id + '"]'); payload.reason = sel ? sel.value : 'rules'; }
+    a.disabled = true;
+    api(url, { body: payload }).then(function (r) {
+      a.disabled = false;
+      toast(r && r.ok ? (r.msg || 'Готово') : 'Помилка' + (r && r.msg ? ': ' + r.msg : r && r.error ? ': ' + r.error : ''));
+      counts();
+      if (tab === 'find' && $('adm-no')) openAd(Number(id)); else draw();
+    });
+  });
+  setTab(tab);
+  counts();
+})();
 
 renderAll();
 refreshMe();

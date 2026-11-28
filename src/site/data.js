@@ -84,7 +84,7 @@ export function publicAd(ad, inviteCount = 0) {
   const photos = JSON.parse(ad.photos || '[]');
   const free = ad.kind === 'free';
   return {
-    id: ad.id, cat: ad.category, country: ad.country, cc: c ? c.code : null, city: ad.city,
+    id: ad.id, no: '#' + String(ad.id).padStart(8, '0'), tags: String(ad.tags || '').split(',').filter(Boolean), cat: ad.category, country: ad.country, cc: c ? c.code : null, city: ad.city,
     title: free ? firstLine(ad.body).slice(0, 90) : ad.title,
     text: ad.body || '', free,
     price: free ? '' : (priceText(ad.price) || ''), ...priceNums(free ? '' : ad.price),

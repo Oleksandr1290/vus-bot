@@ -336,3 +336,42 @@
   .thanks-row{display:grid;gap:10px}
   @media (max-width:600px){ .community .nums .num{font-size:46px} .gallery img{height:140px} }
   @media (prefers-reduced-motion:reduce){ .anim-logo .brand b span,.anim-logo .board .note{animation:none!important} }
+  /* update 11 */
+  .brand b.go span{animation:stick .62s cubic-bezier(.2,.9,.3,1.35) both}
+  .brand b.go span:nth-child(2){animation-delay:.12s}
+  .brand b.go span:nth-child(3){animation-delay:.24s}
+  @media (prefers-reduced-motion:reduce){ .brand b.go span{animation:none!important} }
+  .me i{overflow:hidden}
+  .me i img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+  .ad,.feed>*{min-width:0}
+  .ad h4,.ad .text,.ad .price,.ad .where,.detail-text,.detail .landing-h1,.my h4{overflow-wrap:anywhere;word-break:break-word}
+  .ad .no,.sheet .no{position:absolute;top:10px;right:12px;z-index:2;font:600 12px/1 'Golos Text',sans-serif;letter-spacing:.03em;
+    color:rgba(27,32,29,.5);background:rgba(255,255,255,.62);padding:4px 7px;border-radius:999px;border:0;backdrop-filter:blur(3px)}
+  .ad .where{padding-right:92px}
+  .sheet .no-copy{cursor:copy;font-size:13px;top:14px;right:16px}
+  .sheet .no-copy:hover{color:rgba(27,32,29,.8)}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 0;padding:0}
+  .tags a{font-size:12.5px;line-height:1.2;color:var(--graphite);background:rgba(27,32,29,.06);padding:3px 8px;border-radius:999px;text-decoration:none}
+  .tags a:hover{background:rgba(27,32,29,.12);color:var(--ink)}
+  .detail .tags{margin:4px 0 16px}
+  .tag-on{display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;font-size:14px}
+  .tag-on b{background:var(--ink);color:#fff;padding:4px 10px;border-radius:999px;font-weight:600}
+  .own-del{position:absolute;top:34px;right:12px;z-index:2;border:0;background:rgba(255,255,255,.75);border-radius:999px;padding:3px 7px;font-size:13px;cursor:pointer}
+  .adm-wrap{max-width:980px}
+  .adm-wrap .cab-tabs em{font-style:normal;background:#B3261E;color:#fff;border-radius:999px;padding:0 6px;font-size:12px;margin-left:4px}
+  .adm-wrap .cab-tabs em:empty{display:none}
+  .adm-card{border:1px solid rgba(27,32,29,.14);border-radius:12px;padding:14px 16px;margin:0 0 12px;background:#fff}
+  .adm-card h4{margin:2px 0 6px;font-size:17px}
+  .adm-card .sm{font-size:13.5px;color:var(--graphite);margin:2px 0}
+  .adm-card pre{white-space:pre-wrap;font:inherit;font-size:14px;margin:8px 0;max-height:220px;overflow:auto;overflow-wrap:anywhere}
+  .adm-card .imgs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+  .adm-card .imgs img{width:84px;height:84px;object-fit:cover;border-radius:6px}
+  .adm-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  .adm-acts select{padding:8px;border-radius:10px;border:1px solid rgba(27,32,29,.25)}
+  .adm-find{display:flex;gap:8px;margin:0 0 14px}
+  .adm-find input{flex:1;padding:12px 14px;border-radius:12px;border:1px solid rgba(27,32,29,.25);font-size:16px}
+  .adm-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .adm-stats div{background:#fff;border:1px solid rgba(27,32,29,.12);border-radius:12px;padding:12px 14px}
+  .adm-stats b{display:block;font-size:24px}
+  .adm-stats span{font-size:13px;color:var(--graphite)}
+  .detail .sheet{max-height:none;overflow:visible}

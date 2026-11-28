@@ -5,6 +5,8 @@ import { t } from './i18n.js';
 import { categoryByKey, hashtag, priceText } from './data.js';
 
 export { tg, esc, now, fmtDate, t };
+export { adNo } from './i18n.js';
+import { adNo as padNo } from './i18n.js';
 
 export const DAY = 86400;
 export const AD_LIFETIME = 30 * DAY;
@@ -146,6 +148,17 @@ export async function ensureSchema(env) {
   try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN contact_clicks INTEGER NOT NULL DEFAULT 0').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE reports ADD COLUMN msg_id INTEGER').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE reports ADD COLUMN msg_text TEXT').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN tags TEXT').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN checked_at INTEGER').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE users ADD COLUMN photo_url TEXT').run(); } catch (e) { /* already there */ }
+  // One-time: remove all test ads and start numbering from #00000001 (owner's decision, update 11).
+  if (!(await getSetting(env, 'reset_ads_v1'))) {
+    for (const q of ['DELETE FROM ads', 'DELETE FROM reports WHERE ad_id IS NOT NULL', 'DELETE FROM bumps',
+      "DELETE FROM sqlite_sequence WHERE name = 'ads'"]) {
+      try { await env.DB.prepare(q).run(); } catch (e) { console.log('reset', q, e.message); }
+    }
+    await setSetting(env, 'reset_ads_v1', String(now()));
+  }
   schemaReady = true;
 }
 
@@ -347,11 +360,27 @@ export async function findUser(env, query) {
 
 // ───────────────────────────── post rendering ─────────────────────────────
 
+// Keywords: comma-separated, a tag may have several words (joined with "_"), up to 10 × 25 chars.
+export function normTags(input) {
+  const out = [];
+  for (let raw of String(input || '').split(',')) {
+    const tag = raw.replace(/#/g, ' ').replace(/[^\p{L}\p{N}\s_-]/gu, ' ').trim().replace(/[\s_]+/g, '_').replace(/^[-_]+|[-_]+$/g, '').slice(0, 25);
+    if (tag.length < 2 || /^\d+$/.test(tag)) continue;
+    if (!out.some((x) => x.toLowerCase() === tag.toLowerCase())) out.push(tag);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+export const tagList = (ad) => String((ad && ad.tags) || '').split(',').filter(Boolean);
+export const tagsLine = (ad) => tagList(ad).map((x) => '#' + x).join(' ');
+
 export function buildPost(ad, env) {
   const cat = categoryByKey(ad.category);
   const tags = [hashtag(ad.country), hashtag(ad.city), cat ? '#' + cat.tag : ''].filter(Boolean).join(' ');
   const bot = env.BOT_USERNAME || 'vus_ua_bot';
-  const footer = (ad.star ? '⭐ Активний учасник ВУС\n\n' : '') + `➕ Подати своє оголошення безкоштовно: @${bot}`;
+  const userTags = tagsLine(ad);
+  const footer = (userTags ? `🏷 ${esc(userTags)}\n\n` : '') + (ad.id ? `🔢 Оголошення #${padNo(ad.id)}\n` : '') +
+    (ad.star ? '⭐ Активний учасник ВУС\n' : '') + `\n➕ Подати своє оголошення безкоштовно: @${bot}`;
 
   // Ready-made text from the author.
   if (ad.kind === 'free') return `${tags}\n\n${esc(ad.body)}\n\n${footer}`;
@@ -436,6 +465,33 @@ export async function removeFromChannel(env, ad) {
   }
 }
 
+// Checks that published ads still exist in the channel (a post deleted there by hand is invisible to the bot).
+// A silent forward to the admin channel answers "not found" for a deleted post; the copy is removed at once.
+export async function checkChannelAds(env, limit = 10) {
+  if (!env.ADMIN_CHAT_ID) return 0;
+  const { results } = await env.DB.prepare(
+    "SELECT * FROM ads WHERE status = 'published' AND channel_msg_ids != '[]' ORDER BY COALESCE(checked_at, 0) LIMIT ?"
+  ).bind(limit).all();
+  let gone = 0;
+  for (const ad of results) {
+    const ids = JSON.parse(ad.channel_msg_ids || '[]');
+    let alive = false, unknown = false;
+    for (const id of ids) {
+      const r = await tg(env, 'forwardMessage', { chat_id: env.ADMIN_CHAT_ID, from_chat_id: env.CHANNEL_ID, message_id: id, disable_notification: true });
+      if (r.ok) { alive = true; await tg(env, 'deleteMessage', { chat_id: env.ADMIN_CHAT_ID, message_id: r.result.message_id }); break; }
+      if (!/not found|MESSAGE_ID_INVALID|message to forward/i.test(r.description || '')) unknown = true;
+    }
+    if (!alive && !unknown) {
+      await env.DB.prepare("UPDATE ads SET status = 'deleted', checked_at = ? WHERE id = ?").bind(now(), ad.id).run();
+      await logEvent(env, 'ad_gone', ad.user_id, String(ad.id));
+      gone++;
+    } else {
+      await env.DB.prepare('UPDATE ads SET checked_at = ? WHERE id = ?').bind(now(), ad.id).run();
+    }
+  }
+  return gone;
+}
+
 export function explainError(e) {
   const d = String(e || 'невідома помилка');
   if (/chat not found/i.test(d)) return 'канал не знайдено — перевір CHANNEL_ID у wrangler.toml';
@@ -472,7 +528,7 @@ export const adByChannelMsg = (env, msgId) =>
 // ───────────────────────────── ad moderation card ─────────────────────────────
 
 export function adminCard(env, ad, author, statusLine = '') {
-  return `🆕 <b>Оголошення #${ad.id}</b> на модерації${ad.priority ? ' · ⚡ пріоритет' : ''}\n` +
+  return `🆕 <b>Оголошення #${padNo(ad.id)}</b> на модерації${ad.priority ? ' · ⚡ пріоритет' : ''}\n` +
     `Автор: ${userLabel(author, ad.user_id)}\n` +
     `Сайт: ${ad.on_site ? 'так' : 'ні'}\n` +
     `────────────\n` +

@@ -2,9 +2,9 @@
 
 import { tg, getSetting, logEvent } from '../common.js';
 import { donationsOn } from '../community.js';
-import { handleApi } from './api.js';
+import { handleApi, currentUser } from './api.js';
 import { activeAds, oneAd, publicAd, fxRates, memberCounts, weekCounts, popularCombos, parseLanding } from './data.js';
-import { homePage, adPage, docPage, sitemap, ASSET_VERSION } from './page.js';
+import { homePage, adPage, docPage, sitemap, adminPage, ASSET_VERSION } from './page.js';
 import { SITE_T } from './i18n.js';
 import APP_CSS from './app.css.txt';
 import APP_JS from './app.js.txt';
@@ -77,7 +77,7 @@ export async function handleSite(request, env, ctx) {
   }
   if (path.startsWith('/img/')) return photo(env, request, path.slice(5), ctx);
   if (path === '/robots.txt') {
-    return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${env.SITE_URL || ''}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain' } });
+    return new Response(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nSitemap: ${env.SITE_URL || ''}/sitemap.xml\n`, { headers: { 'content-type': 'text/plain' } });
   }
 
   const lang = langOf(request, url);
@@ -88,6 +88,13 @@ export async function handleSite(request, env, ctx) {
     return new Response(sitemap(env, ads, popularCombos(ads, 200)), { headers: { 'content-type': 'application/xml; charset=utf-8' } });
   }
   if (path === '/rules' || path === '/privacy') return html(docPage(env, { lang, kind: path.slice(1), donate }));
+
+  if (path === '/admin') {
+    const u = await currentUser(env, request);
+    if (!u || !u.isOwner) return html(adPage(env, { lang, ad: null, donate }), 404);
+    const adId = Number(url.searchParams.get('ad')) || null;
+    return html(adminPage(env, { lang, adId }));
+  }
 
   let m = path.match(/^\/ad\/(\d+)$/);
   if (m) {

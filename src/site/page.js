@@ -6,7 +6,7 @@ import { tt } from './i18n.js';
 import { DOCS } from './docs.js';
 import { CURRENCY, cityLatin, slug } from './data.js';
 
-export const ASSET_VERSION = '1';
+export const ASSET_VERSION = '2';
 
 const catName = (lang, key) => { const c = categoryByKey(key); return c ? (c[lang] || c.ua).replace(/^\S+\s/, '') : key; };
 const countryName = (lang, ua) => { const c = COUNTRIES.find((x) => x.ua === ua); return c ? (c[lang] || c.ua) : ua; };
@@ -32,11 +32,12 @@ const CAT_LOOK = { job: '#DCEBDF', jobseek: '#E3E8F2', housing: '#F2E6D9', house
 export function cardHtml(lang, ad, fx) {
   const tabs = ad.hasContact ? `<div class="tabs">${Array.from({ length: 5 }, () => `<button type="button" aria-label="${tt(lang, 'tab')}">${tt(lang, 'tab_s')}</button>`).join('')}</div>` : '';
   const thumb = ad.photos.length ? `<div class="thumb" style="background:${CAT_LOOK[ad.cat] || '#E8EBE6'}"><img src="${ad.photos[0]}" alt="" loading="lazy"><small>📷 ${ad.photos.length}</small></div>` : '';
-  return `<article class="ad${ad.star ? ' star' : ''}" data-id="${ad.id}">${thumb}
+  const tagLinks = ad.tags && ad.tags.length ? `<p class="tags">${ad.tags.map((x) => `<a href="/?tag=${encodeURIComponent(x)}" data-tag="${esc(x)}">#${esc(x)}</a>`).join('')}</p>` : '';
+  return `<article class="ad${ad.star ? ' star' : ''}" data-id="${ad.id}"><span class="no" title="${ad.no}">${ad.no}</span>${thumb}
     <p class="where"><b>${esc(ad.city)}</b>, ${esc(countryName(lang, ad.country))} · ${esc(catName(lang, ad.cat))}</p>
     <h4>${ad.h < 24 ? `<span class="new">${tt(lang, 'newb')}</span>` : ''}<a href="/ad/${ad.id}">${esc(ad.title)}</a></h4>
     ${ad.price ? `<p class="price">${esc(ad.price)}${approxHtml(ad, fx)}</p>` : ''}
-    <p class="text">${esc((ad.text.split('\n').find((x) => x.trim()) || '').slice(0, 220))}</p>
+    <p class="text">${esc((ad.text.split('\n').find((x) => x.trim()) || '').slice(0, 220))}</p>${tagLinks}
     <div class="meta"><span>${ago(lang, ad.h)} · <span class="views">👁 ${ad.views}</span></span>${ad.star ? `<span class="badge">${tt(lang, 'star')}</span>` : ''}</div>
     ${ad.hasContact ? `<p class="contact" aria-live="polite"></p>` : ''}${tabs}
   </article>`;
@@ -105,6 +106,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 </head>
 <body>
 ${header(lang)}
+<script>(function(){try{if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;var b=document.querySelector('.brand b');if(!b)return;var go=function(){b.classList.remove('go');void b.offsetWidth;b.classList.add('go')};go();setInterval(go,15000)}catch(e){}})()</script>
 ${body}
 ${footer(lang, env)}
 <script id="vus-data" type="application/json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>
@@ -252,15 +254,17 @@ export function adPage(env, { lang, ad, raw, fx, similar, donate }) {
   const body = `<main class="wrap detail">
   <p class="crumbs"><a href="/" data-t="back_home">${tt(lang, 'back_home')}</a> · <a href="${landing}">${esc(tt(lang, 'land_in', { a: catName(lang, ad.cat), b: ad.city }))}</a></p>
   <article class="sheet" data-id="${ad.id}">
+    <button type="button" class="no no-copy" id="copy-no" title="${ad.no}">${ad.no}</button>
     <p class="where" style="margin:0 0 8px;color:var(--graphite);font-size:14px"><b style="color:var(--ink)">${esc(ad.city)}</b>, ${esc(countryName(lang, ad.country))} · ${esc(catName(lang, ad.cat))}</p>
     <h1 class="landing-h1">${ad.h < 24 ? `<span class="new">${tt(lang, 'newb')}</span>` : ''}${esc(ad.title)}</h1>
     ${gallery}
     ${ad.price ? `<p class="detail-price">${esc(ad.price)}${approxHtml(ad, fx)}</p>` : ''}
     <p class="detail-text">${esc(ad.text)}</p>
-    <div class="detail-meta"><span>${tt(lang, 'ad_no', { n: ad.id })}</span><span>${ago(lang, ad.h)}</span><span id="views">👁 ${ad.views}</span>${ad.star ? `<span style="color:var(--ink);font-weight:600">${tt(lang, 'star')}</span>` : ''}</div>
+    ${ad.tags && ad.tags.length ? `<p class="tags">${ad.tags.map((x) => `<a href="/?tag=${encodeURIComponent(x)}">#${esc(x)}</a>`).join('')}</p>` : ''}
+    <div class="detail-meta"><span>${ago(lang, ad.h)}</span><span id="views">👁 ${ad.views}</span>${ad.star ? `<span style="color:var(--ink);font-weight:600">${tt(lang, 'star')}</span>` : ''}</div>
     ${ad.hasContact ? `<div class="reveal"><button class="btn" type="button" id="show-contact" data-t="show">${tt(lang, 'show')}</button><span id="contact-val" hidden></span></div>` : ''}
     <div class="safety"><b data-t="safety_t">${tt(lang, 'safety_t')}</b><ul>${[1, 2, 3, 4].map((i) => `<li data-t="safety${i}">${tt(lang, 'safety' + i)}</li>`).join('')}</ul></div>
-    <div class="row-actions"><button class="ghost" type="button" id="share" data-t="share">${tt(lang, 'share')}</button><button class="ghost" type="button" id="report" data-t="report">${tt(lang, 'report')}</button></div>
+    <div class="row-actions"><button class="ghost" type="button" id="share" data-t="share">${tt(lang, 'share')}</button><button class="ghost" type="button" id="report" data-t="report">${tt(lang, 'report')}</button><button class="ghost" type="button" id="own-del-ad" hidden>🗑</button><a class="ghost" id="own-adm-ad" href="/admin?ad=${ad.id}" hidden>🛠</a></div>
     ${similar.length ? `<div class="similar"><h3 data-t="similar">${tt(lang, 'similar')}</h3><ul>${similar.map((s) => `<li><a href="/ad/${s.id}">${esc(s.title)}</a><span>${esc(s.price || '')}</span></li>`).join('')}</ul></div>` : ''}
   </article>
 </main>`;
@@ -285,4 +289,22 @@ export function sitemap(env, ads, combos) {
   const site = env.SITE_URL || '';
   const urls = ['/', '/rules', '/privacy', ...combos.map((c) => c.path), ...ads.map((a) => `/ad/${a.id}`)];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${site}${u}</loc></url>`).join('\n')}\n</urlset>\n`;
+}
+
+// Owner admin panel shell; the client script loads everything through /api/admin/*.
+export function adminPage(env, { lang, adId = null }) {
+  const body = `<main class="wrap detail adm-wrap">
+  <p class="crumbs"><a href="/">← ВУС</a></p>
+  <div class="sheet">
+    <h1 class="landing-h1">🛠 Адмін-панель</h1>
+    <div class="cab-tabs" role="group" id="adm-tabs">
+      <button type="button" data-admtab="queue" aria-pressed="true">Модерація <em id="adm-n-queue"></em></button>
+      <button type="button" data-admtab="reports" aria-pressed="false">Скарги <em id="adm-n-reports"></em></button>
+      <button type="button" data-admtab="find" aria-pressed="false">Пошук за номером</button>
+      <button type="button" data-admtab="stats" aria-pressed="false">Статистика</button>
+    </div>
+    <div id="adm-body"><p class="sub">Завантаження…</p></div>
+  </div>
+</main>`;
+  return layout(env, { lang, title: 'Адмін-панель | ВУС', desc: 'ВУС', path: '/admin', body, data: baseData(env, lang, { page: 'admin', adId }), noindex: true });
 }

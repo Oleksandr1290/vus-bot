@@ -17,7 +17,7 @@ import { showStats, showMembers, memberStatsBlock, onStatsButton } from './stats
 const BOT = (env) => env.BOT_USERNAME || 'vus_ua_bot';
 
 // Reasons as shown to admins (always Ukrainian).
-const RR_UA = {
+export const RR_UA = {
   scam: 'Шахрайство', spam: 'Спам / реклама', insult: 'Образи', forbidden: 'Заборонений товар',
   other: 'Інше', group: 'Скарга з групи (/report)',
   check: '🔍 На перевірку (/proverka)', ai: '🤖 Підозра нейромережі на рекламу',
@@ -239,7 +239,7 @@ async function refreshReportCard(env, rid) {
   });
 }
 
-async function closeReport(env, rid, decKey, line, staff) {
+export async function closeReport(env, rid, decKey, line, staff) {
   const rep = await env.DB.prepare('SELECT * FROM reports WHERE id = ?').bind(rid).first();
   if (!rep || rep.status === 'closed') return;
   const decision = `${line} — вирішив ${esc(whoName(staff))}`;
@@ -340,7 +340,7 @@ async function applyMute(env, staff, uid, hours, reasonKey, rid = null) {
   return `🔇 Мут на ${hours} год (до ${fmtDateTime(until)}).${groupNote}`;
 }
 
-async function applyBan(env, staff, uid, reasonKey, rid = null, deleteAds = false) {
+export async function applyBan(env, staff, uid, reasonKey, rid = null, deleteAds = false) {
   const gid = await groupId(env);
   let groupNote = '';
   if (gid) {
@@ -383,7 +383,7 @@ async function applyUnban(env, staff, uid) {
   return `✅ Обмеження знято.${notes.length ? `\n(Telegram: ${notes.join('; ')})` : ''}`;
 }
 
-async function deleteReportedAd(env, staff, rid) {
+export async function deleteReportedAd(env, staff, rid) {
   const rep = await env.DB.prepare('SELECT * FROM reports WHERE id = ?').bind(rid).first();
   const ad = rep && rep.ad_id ? await getAd(env, rep.ad_id) : null;
   if (!ad) return 'Оголошення не знайдено.';
