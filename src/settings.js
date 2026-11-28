@@ -137,11 +137,11 @@ export async function onSettingsInput(env, user, session, msg) {
     const v = await classify(env, text);
     let out;
     if (v.quota) out = '⚠️ Квоту нейромережі на сьогодні вичерпано. Вона оновиться о 00:00 за UTC.';
-    else if (v.error) out = `❌ Нейромережа не відповіла${v.reason ? ': ' + v.reason : ''}. Перевірте, що в wrangler.toml є блок [ai].`;
+    else if (v.error) out = v.reason ? `❌ ${v.reason}. Перевірте, що в wrangler.toml є блок [ai].` : `❌ Нейромережа не відповіла. Подробиці (надішліть їх розробнику):\n\n${(v.details || '').slice(0, 1500)}`;
     else {
       const action = !v.ad || v.confidence < REVIEW_CONF ? 'залишив би повідомлення'
         : v.confidence >= AUTO_DELETE_CONF && (await getCfg(env, 'ai_mode')) === 'auto' ? 'видалив би одразу' : 'надіслав би адмінам на перевірку';
-      out = `🧪 Результат\n\nРеклама: ${v.ad ? 'так' : 'ні'}\nВпевненість: ${v.confidence}%\nПричина: ${v.reason || '—'}\n\nБот ${action}.`;
+      out = `🧪 Результат\n\nРеклама: ${v.ad ? 'так' : 'ні'}\nВпевненість: ${v.confidence}%\nПричина: ${v.reason || '—'}\nМодель: ${(v.model || '').split('/').pop()}\n\nБот ${action}.`;
     }
     await send(env, user.id, out, { reply_markup: { inline_keyboard: [[{ text: '🧪 Ще текст', callback_data: 'cfg:test' }, { text: '⚙️ Налаштування', callback_data: 'cfg:back' }]] } });
     return true;
