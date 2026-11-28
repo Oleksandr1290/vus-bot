@@ -151,6 +151,7 @@ export async function ensureSchema(env) {
   try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN tags TEXT').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE ads ADD COLUMN checked_at INTEGER').run(); } catch (e) { /* already there */ }
   try { await env.DB.prepare('ALTER TABLE users ADD COLUMN photo_url TEXT').run(); } catch (e) { /* already there */ }
+  try { await env.DB.prepare('ALTER TABLE users ADD COLUMN photo_at INTEGER').run(); } catch (e) { /* already there */ }
   // One-time: remove all test ads and start numbering from #00000001 (owner's decision, update 11).
   if (!(await getSetting(env, 'reset_ads_v1'))) {
     for (const q of ['DELETE FROM ads', 'DELETE FROM reports WHERE ad_id IS NOT NULL', 'DELETE FROM bumps',

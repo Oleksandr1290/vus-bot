@@ -51,7 +51,7 @@ function header(lang) {
   <a class="brand" href="/" aria-label="ВУС"><b><span>В</span><span>У</span><span>С</span></b><span data-t="tagline">${tt(lang, 'tagline')}</span></a>
   <nav>
     <a class="hide-s" href="/#how" data-t="nav_how">${tt(lang, 'nav_how')}</a>
-    <div class="lang" role="group" aria-label="Мова / Language">${lb('ua', 'UA')}${lb('ru', 'RU')}${lb('en', 'EN')}</div>
+    <div class="lang" role="group" aria-label="Мова / Language">${lb('ua', 'UA')}${lb('en', 'EN')}</div>
     <span id="auth"><button class="tg-login" type="button" data-login>${TG_ICON}<span data-t="login">${tt(lang, 'login')}</span></button></span>
     <button class="btn" type="button" data-open-post data-t="post">${tt(lang, 'post')}</button>
   </nav>

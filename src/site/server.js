@@ -9,7 +9,7 @@ import { SITE_T } from './i18n.js';
 import APP_CSS from './app.css.txt';
 import APP_JS from './app.js.txt';
 
-const LANGS = ['ua', 'ru', 'en'];
+const LANGS = ['ua', 'en']; // Russian removed from the website (owner's decision)
 
 export function siteHosts(env) {
   const main = env.SITE_URL ? new URL(env.SITE_URL).hostname : null;
@@ -25,10 +25,9 @@ export function isSiteRequest(env, url) {
 function langOf(request, url) {
   const q = url.searchParams.get('lang');
   if (LANGS.includes(q)) return q;
-  const c = (request.headers.get('cookie') || '').match(/(?:^|;\s*)vus_lang=(ua|ru|en)/);
+  const c = (request.headers.get('cookie') || '').match(/(?:^|;\s*)vus_lang=(ua|en)/);
   if (c) return c[1];
   const al = (request.headers.get('accept-language') || '').toLowerCase();
-  if (al.startsWith('ru')) return 'ru';
   if (al.startsWith('en')) return 'en';
   return 'ua';
 }

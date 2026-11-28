@@ -27,7 +27,25 @@ export async function currentUser(env, request) {
   return u;
 }
 
+// Profile photo: taken from Telegram through the bot (served by the site at /img/<file_id>),
+// with the photo link from the login widget as a fallback. Rechecked at most once a day.
+async function refreshPhoto(env, u, loginUrl, force = false) {
+  if (!force && u.photo_at && now() - u.photo_at < 86400) return u.photo_url || null;
+  let photo = null;
+  try {
+    const r = await tg(env, 'getUserProfilePhotos', { user_id: u.id, limit: 1 });
+    const sizes = r.ok && r.result && r.result.photos && r.result.photos[0];
+    if (sizes && sizes.length) photo = '/img/' + (sizes[1] || sizes[0]).file_id;
+  } catch (e) { /* keep the fallback */ }
+  if (!photo && /^https:\/\/[^\s"'<>]+$/.test(loginUrl || '')) photo = loginUrl;
+  if (!photo && !force && u.photo_url) photo = u.photo_url;
+  await env.DB.prepare('UPDATE users SET photo_url = ?, photo_at = ? WHERE id = ?').bind(photo, now(), u.id).run();
+  u.photo_url = photo;
+  return photo;
+}
+
 async function meInfo(env, u) {
+  await refreshPhoto(env, u, null);
   const m = u.isStaff ? { ch: true, gr: true } : await membership(env, u.id);
   const lim = await limitsFor(env, u);
   return {
@@ -178,9 +196,7 @@ export async function handleApi(env, request, path) {
     const tgUser = await verifyTelegramLogin(env, await body());
     if (!tgUser) return fail('login', 401);
     const user = await upsertUser(env, { id: tgUser.id, first_name: tgUser.first_name, username: tgUser.username }, { detect: true });
-    const photo = /^https:\/\/[^\s"']+$/.test(tgUser.photo_url || '') ? tgUser.photo_url : null;
-    await env.DB.prepare('UPDATE users SET photo_url = ? WHERE id = ?').bind(photo, user.id).run();
-    user.photo_url = photo;
+    await refreshPhoto(env, user, tgUser.photo_url, true);
     user.isOwner = isOwner(env, user.id);
     await logEvent(env, 'site_login', user.id);
     return json(await meInfo(env, user), 200, { 'set-cookie': await makeSessionCookie(env, user.id) });
