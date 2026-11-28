@@ -7,7 +7,9 @@ import {
 } from './common.js';
 
 // Models: the first is tried first; the second is a fallback if the first is unavailable.
-const MODELS = ['@cf/google/gemma-4-26b-a4b-it', '@cf/zai-org/glm-4.7-flash', '@cf/meta/llama-3.1-8b-instruct'];
+const MODELS = ['@cf/google/gemma-4-26b-a4b-it', '@cf/zai-org/glm-4.7-flash', '@cf/meta/llama-4-scout-17b-16e-instruct'];
+// Gemma 4 and GLM "think out loud" before answering — ask them not to.
+const THINKERS = ['gemma-4', 'glm-4'];
 export const AUTO_DELETE_CONF = 85;   // ≥ 85% — remove at once (in "auto" mode)
 export const REVIEW_CONF = 60;        // 60–84% — send to admins
 const QUIET_SECS = 15 * 60;           // night close waits for 15 minutes of quiet
@@ -56,6 +58,7 @@ NOT advertising:
 - answering someone's question with a recommendation of a well-known place, without contacts of one's own business.
 
 Messages may be in Ukrainian, Russian, surzhyk or English.
+Do not think step by step, do not analyse, do not explain.
 Reply with ONLY one line of JSON, nothing else:
 {"ad": true or false, "confidence": number 0-100, "reason": "short reason in Ukrainian, max 8 words"}`;
 
@@ -88,7 +91,8 @@ function replyText(r) {
 function parseVerdict(raw) {
   if (raw && typeof raw === 'object' && typeof raw.ad === 'boolean') return raw;
   const s = replyText(raw).replace(/```(?:json)?/gi, '');
-  const m = s.match(/\{[^{}]*"ad"[^{}]*\}/);
+  const all = s.match(/\{[^{}]*"ad"\s*:[^{}]*\}/g);
+  const m = all && [all[all.length - 1]];
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch (e) {
     const ad = /"ad"\s*:\s*true/i.test(m[0]);
@@ -105,17 +109,34 @@ export async function classify(env, text) {
   if (!env.AI) return { error: true, reason: 'нейромережа не підключена' };
   const messages = [
     { role: 'system', content: SYSTEM + (await examples(env)) },
-    { role: 'user', content: `Message:\n"""${text.slice(0, 1500)}"""` },
+    { role: 'user', content: `Message:\n"""${text.slice(0, 1500)}"""\n\nAnswer with the JSON line only.` },
   ];
   const problems = [];
   for (const model of MODELS) {
     try {
-      const r = await env.AI.run(model, { messages, max_tokens: 200, temperature: 0 });
-      const v = parseVerdict(r);
+      const thinker = THINKERS.some((x) => model.includes(x));
+      // 1st try: thinking switched off, short answer. 2nd try: let it think, more room, take the final JSON.
+      const tries = thinker
+        ? [{ max_tokens: 300, chat_template_kwargs: { enable_thinking: false, thinking: false } }, { max_tokens: 1500 }]
+        : [{ max_tokens: 300 }];
+      let lastText = '';
+      let v = null;
+      for (const extra of tries) {
+        let r;
+        try {
+          r = await env.AI.run(model, { messages, temperature: 0, ...extra });
+        } catch (e) {
+          if (isQuotaError(e) || !extra.chat_template_kwargs) throw e;
+          continue; // the model refused the option — try without it
+        }
+        v = parseVerdict(r);
+        if (v && typeof v.ad === 'boolean') break;
+        lastText = replyText(r);
+      }
       if (v && typeof v.ad === 'boolean') {
         return { ad: v.ad, confidence: Math.max(0, Math.min(100, Number(v.confidence) || 0)), reason: String(v.reason || '').slice(0, 80), model };
       }
-      problems.push(`${model.split('/').pop()}: незрозуміла відповідь «${replyText(r).slice(0, 120)}»`);
+      problems.push(`${model.split('/').pop()}: незрозуміла відповідь «${lastText.slice(-160)}»`);
     } catch (e) {
       if (isQuotaError(e)) {
         await setSetting(env, 'ai_quota_day', utcDay());
