@@ -408,6 +408,12 @@ export function channelKeyboard(env, adId) {
 }
 
 // Sends an ad to any chat. Returns { ids, kind, error }.
+// Large photo preview above the text (the photo is served by the website at /img/<file_id>).
+export const previewOpts = (env, fileId) => ({
+  disable_web_page_preview: undefined,
+  link_preview_options: { url: `${String(env.SITE_URL).replace(/\/$/, '')}/img/${encodeURIComponent(fileId)}`, prefer_large_media: true, show_above_text: true },
+});
+
 export async function sendPost(env, chatId, ad, keyboard) {
   const html = buildPost(ad, env);
   const photos = JSON.parse(ad.photos || '[]');
@@ -422,6 +428,13 @@ export async function sendPost(env, chatId, ad, keyboard) {
   }
 
   const fits = plainLength(html) <= 1024;
+
+  // One photo + text longer than a caption (1024): one text post with the photo as a large preview above the text.
+  if (photos.length === 1 && !fits && env.SITE_URL) {
+    const r = await sendHtml(env, chatId, html, { ...kbExtra, ...previewOpts(env, photos[0]) });
+    if (r.ok) { ids.push(r.result.message_id); return { ids, kind: 'preview', error: null }; }
+    err = r.description; // fall back to photo + text below
+  }
 
   if (photos.length === 1 && fits) {
     const r = await tg(env, 'sendPhoto', { chat_id: chatId, photo: photos[0], caption: html, parse_mode: 'HTML', ...kbExtra });
@@ -458,7 +471,9 @@ export async function removeFromChannel(env, ad) {
   }
   if (!failed) return;
   const html = '❌ <b>НЕАКТУАЛЬНО</b>\n\n' + buildPost(ad, env);
-  if (ad.channel_kind === 'text' || ad.channel_kind === 'mixed') {
+  if (ad.channel_kind === 'preview') {
+    await tg(env, 'editMessageText', { chat_id: env.CHANNEL_ID, message_id: ids[0], text: html, parse_mode: 'HTML', ...previewOpts(env, JSON.parse(ad.photos || '[]')[0]) });
+  } else if (ad.channel_kind === 'text' || ad.channel_kind === 'mixed') {
     await tg(env, 'editMessageText', { chat_id: env.CHANNEL_ID, message_id: ids[ids.length - 1], text: html, parse_mode: 'HTML', disable_web_page_preview: true });
   } else {
     await tg(env, 'editMessageCaption', { chat_id: env.CHANNEL_ID, message_id: ids[0], caption: html, parse_mode: 'HTML' });

@@ -52,7 +52,7 @@ function approx(ad) {
 function card(ad) {
   var tabs = '';
   if (ad.hasContact) { tabs = '<div class="tabs">'; for (var i = 0; i < 5; i++) tabs += '<button type="button" aria-label="' + tr('tab') + '">' + tr('tab_s') + '</button>'; tabs += '</div>'; }
-  var thumb = ad.photos.length ? '<div class="thumb" style="background:' + (CAT_LOOK[ad.cat] || '#E8EBE6') + '"><img src="' + ad.photos[0] + '" alt="" loading="lazy"><small>📷 ' + ad.photos.length + '</small></div>' : '';
+  var thumb = ad.photos.length ? '<div class="thumb"><img class="bg" src="' + ad.photos[0] + '" alt="" aria-hidden="true" loading="lazy"><img class="fg" src="' + ad.photos[0] + '" alt="" loading="lazy"><small>📷 ' + ad.photos.length + '</small></div>' : '';
   var line = (ad.text.split('\n').filter(function (x) { return x.trim(); })[0] || '').slice(0, 220);
   var tags = ad.tags && ad.tags.length ? '<p class="tags">' + ad.tags.map(function (x) { return '<a href="/?tag=' + encodeURIComponent(x) + '" data-tag="' + esc(x) + '">#' + esc(x) + '</a>'; }).join('') + '</p>' : '';
   var del = state.me && state.me.owner ? '<button type="button" class="own-del" data-owndel="' + ad.id + '" title="' + tr('del_q_owner') + '">🗑</button>' : '';
@@ -240,7 +240,7 @@ function drawPost() {
       '<label>' + tr('f_city') + '<select id="f-city">' + cities + '</select><input type="text" id="f-city-other" placeholder="' + tr('f_city_ph') + '" value="' + esc(!known ? cityVal : '') + '"' + (known ? ' hidden' : '') + '></label>' +
       '<label class="full">' + tr('f_cat') + '<select name="cat" id="f-cat">' + cats + '</select></label>' + fields +
       '<label class="full">' + tr('f_tags') + '<input type="text" name="tags" maxlength="300" placeholder="' + tr('f_tags_ph') + '" value="' + esc(e && e.raw.tags ? e.raw.tags.split(',').map(function (x) { return x.replace(/_/g, ' '); }).join(', ') : '') + '"></label>' +
-      '<label class="full">' + tr('f_photos') + '<input type="file" name="photos" id="f-photos" accept="image/*" multiple style="display:none"><span class="drop" id="f-drop">📷 ' + tr('f_drop') + '</span><span class="previews" id="f-prev"></span></label>' +
+      '<label class="full">' + tr('f_photos') + '<input type="file" name="photos" id="f-photos" accept="image/*" multiple style="display:none"><span class="drop" id="f-drop">📷 ' + tr('f_drop') + '</span><span class="hint">' + tr('f_photos_hint') + '</span><span class="previews" id="f-prev"></span></label>' +
       '<label class="full tick"><input type="checkbox" name="site" value="1" checked> ' + tr('f_site') + '</label>' +
       '</form><p id="f-err" class="sub" style="color:#B3261E;margin:14px 0 0" hidden></p>' +
       '<div class="actions"><span></span><button class="btn" type="button" id="send">' + tr('send') + '</button></div>';

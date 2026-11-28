@@ -6,7 +6,7 @@ import { tt } from './i18n.js';
 import { DOCS } from './docs.js';
 import { CURRENCY, cityLatin, slug } from './data.js';
 
-export const ASSET_VERSION = '2';
+export const ASSET_VERSION = '3';
 
 const catName = (lang, key) => { const c = categoryByKey(key); return c ? (c[lang] || c.ua).replace(/^\S+\s/, '') : key; };
 const countryName = (lang, ua) => { const c = COUNTRIES.find((x) => x.ua === ua); return c ? (c[lang] || c.ua) : ua; };
@@ -31,7 +31,7 @@ const CAT_LOOK = { job: '#DCEBDF', jobseek: '#E3E8F2', housing: '#F2E6D9', house
 
 export function cardHtml(lang, ad, fx) {
   const tabs = ad.hasContact ? `<div class="tabs">${Array.from({ length: 5 }, () => `<button type="button" aria-label="${tt(lang, 'tab')}">${tt(lang, 'tab_s')}</button>`).join('')}</div>` : '';
-  const thumb = ad.photos.length ? `<div class="thumb" style="background:${CAT_LOOK[ad.cat] || '#E8EBE6'}"><img src="${ad.photos[0]}" alt="" loading="lazy"><small>📷 ${ad.photos.length}</small></div>` : '';
+  const thumb = ad.photos.length ? `<div class="thumb"><img class="bg" src="${ad.photos[0]}" alt="" aria-hidden="true" loading="lazy"><img class="fg" src="${ad.photos[0]}" alt="" loading="lazy"><small>📷 ${ad.photos.length}</small></div>` : '';
   const tagLinks = ad.tags && ad.tags.length ? `<p class="tags">${ad.tags.map((x) => `<a href="/?tag=${encodeURIComponent(x)}" data-tag="${esc(x)}">#${esc(x)}</a>`).join('')}</p>` : '';
   return `<article class="ad${ad.star ? ' star' : ''}" data-id="${ad.id}"><span class="no" title="${ad.no}">${ad.no}</span>${thumb}
     <p class="where"><b>${esc(ad.city)}</b>, ${esc(countryName(lang, ad.country))} · ${esc(catName(lang, ad.cat))}</p>

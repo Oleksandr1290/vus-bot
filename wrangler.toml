@@ -29,5 +29,5 @@ SITE_ALIASES = ""
 TIKTOK_URL = "https://www.tiktok.com/@vus_ogoloshennya_ua"
 INSTAGRAM_URL = "https://www.instagram.com/vus_spilnota_ua"
 YOUTUBE_URL = ""
-# Закритий канал «ВУС | Ідеї». Поки рядок закоментовано, ідеї приходять власнику в особисті.
-# IDEAS_CHAT_ID = "-100..."
+# Закритий канал «ВУС | Ідеї» (бот має бути в ньому адміністратором).
+IDEAS_CHAT_ID = "-1005871392442"

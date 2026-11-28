@@ -2,7 +2,7 @@
 
 import {
   tg, now, DAY, t, esc, getUser, getAd, publishAd, removeFromChannel, sendPost, channelKeyboard, buildPost,
-  adminCard, postLink, logAction, logEvent, send, levelOf, adNo, whoName,
+  adminCard, postLink, previewOpts, logAction, logEvent, send, levelOf, adNo, whoName,
 } from '../common.js';
 import { notifyAlerts } from '../community.js';
 import { closeReport, applyBan, deleteReportedAd, RR_UA } from '../staff.js';
@@ -32,7 +32,10 @@ async function refreshChannelPost(env, ad) {
   const ids = JSON.parse(ad.channel_msg_ids || '[]');
   if (!ids.length) return;
   const html = buildPost(ad, env);
-  if (ad.channel_kind === 'text' || ad.channel_kind === 'mixed') {
+  if (ad.channel_kind === 'preview') {
+    await tg(env, 'editMessageText', { chat_id: env.CHANNEL_ID, message_id: ids[0], text: html, parse_mode: 'HTML',
+      reply_markup: channelKeyboard(env, ad.id), ...previewOpts(env, JSON.parse(ad.photos || '[]')[0]) });
+  } else if (ad.channel_kind === 'text' || ad.channel_kind === 'mixed') {
     await tg(env, 'editMessageText', { chat_id: env.CHANNEL_ID, message_id: ids[ids.length - 1], text: html, parse_mode: 'HTML',
       disable_web_page_preview: true, reply_markup: channelKeyboard(env, ad.id) });
   } else {
